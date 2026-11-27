@@ -33,7 +33,7 @@ including on failure. Compiling without the device does not require the lock.
    sanitized command and result. Keep a known-good factory image available for
    recovery.
 2. Capture the `COM4` boot log at the YAML logger baud rate and prove the changed
-   behavior. For example, confirm LED GPIO operation or that an NVS preference
+   behavior. For example, confirm LED GPIO operation or that a preference
    survives a reboot. Observe actual values for bus and sensor changes.
 3. For network features, verify Wi-Fi and the native API locally with
    `aioesphomeapi` and `esphome logs`. Do not add the test device to, or change,
@@ -46,7 +46,8 @@ including on failure. Compiling without the device does not require the lock.
 
 For the core platform fixture, the Windows bench runner reserves the kit locally,
 verifies the flash, and checks that two resets produce consecutive boot
-counters without unexpected reboots. Run it from the repository root:
+counters and sustained heartbeats without unexpected reboots. Run it from the
+repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe -m esphome compile tests\components\infineon\test.zephyr.yaml

@@ -13,7 +13,7 @@ Zephyr backend and mainline Zephyr (4.5.0 or later). The YAML platform is
 ## Milestones
 
 - **M0 — Infrastructure:** fork conventions, focused CI, and a native Windows build and test setup.
-- **M1 — Platform:** boot, GPIO, the SCB5 console, NVS preferences, watchdog,
+- **M1 — Platform:** boot, GPIO, the SCB5 console, flash preferences, watchdog,
   RNG, reset reason, unique ID, Wi-Fi, native API, native ESPHome OTA with
   MCUboot, I²C and UART. SPI arrives with radar; PWM, ADC, USB-CDC, deep sleep,
   BLE and RTC are deferred.
