@@ -812,6 +812,7 @@ CONFIG_SCHEMA = cv.All(
                 rtl87xx="none",
                 ln882x="none",
                 esp32_zephyr="light",
+                infineon="none",
                 nrf="light",
                 nxp="light",
                 renesas="light",
@@ -1491,6 +1492,7 @@ FILTER_SOURCE_FILES = filter_source_files_from_platform(
         "wifi_component_pico_w.cpp": {PlatformFramework.RP2_ARDUINO},
         "wifi_component_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,
             PlatformFramework.RENESAS_ZEPHYR,
