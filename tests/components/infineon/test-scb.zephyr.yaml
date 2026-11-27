@@ -4,14 +4,32 @@ esphome:
     priority: -100
     then:
       - lambda: |-
-          // Verify actual transfers separately from the address-only scan.
-          const uint8_t probes[][2] = {{0x68, 0x00}, {0x77, 0x0D}};
+          struct Probe {
+            const char *name;
+            uint8_t address;
+            uint8_t reg;
+            uint8_t mask;
+            uint8_t expected;
+          };
+          // Bosch BMI270 datasheet: CHIP_ID at 0x00 is 0x24.
+          // https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi270-ds000.pdf
+          // Infineon DPS368 datasheet: Product ID at 0x0D resets to 0x10;
+          // bits 7:4 are REV_ID, and the low nibble is PROD_ID (0x0).
+          // https://www.infineon.com/assets/row/public/documents/30/49/infineon-dps368-datasheet-en.pdf
+          constexpr Probe probes[] = {
+              {"BMI270", 0x68, 0x00, 0xFF, 0x24},
+              {"DPS368", 0x77, 0x0D, 0x0F, 0x00},
+          };
           for (const auto &probe : probes) {
             uint8_t value{};
-            if (id(scb0_bus).write_readv(probe[0], &probe[1], 1, &value, 1) == i2c::ERROR_OK) {
-              ESP_LOGI("scb_smoke", "SCB0 device 0x%02X ID: 0x%02X", probe[0], value);
+            const auto error = id(scb0_bus).write_readv(probe.address, &probe.reg, 1, &value, 1);
+            if (error != i2c::ERROR_OK) {
+              ESP_LOGW("scb_smoke", "SCB0 %s FAIL: ID read failed (error %d)", probe.name, error);
+            } else if ((value & probe.mask) != probe.expected) {
+              ESP_LOGW("scb_smoke", "SCB0 %s FAIL: ID 0x%02X (mask 0x%02X), expected 0x%02X",
+                       probe.name, value, probe.mask, probe.expected);
             } else {
-              ESP_LOGW("scb_smoke", "SCB0 device 0x%02X did not return its ID", probe[0]);
+              ESP_LOGI("scb_smoke", "SCB0 %s PASS (ID 0x%02X)", probe.name, value);
             }
           }
 
@@ -28,11 +46,10 @@ logger:
   hardware_uart: UART0  # SCB5 through KitProg3; leave it off the loopback pins.
 
 # SCB0 (i2c0): SCL P0.2, SDA P0.3. The onboard sensors need no jumper.
-# The pinned Zephyr 4.5 CAT1 HAL rejects address-only probes, so a scan
-# can report no devices even when the BMI270 (0x68) and DPS368 (0x77) respond.
+# The pinned Zephyr 4.5 CAT1 HAL rejects address-only probes; read the sensor IDs instead.
 i2c:
   id: scb0_bus
-  scan: true
+  scan: false
 
 # SCB1 (uart1): jumper J17.2 (P10.1 TX) to J17.1 (P10.0 RX), both 3.3 V.
 uart:

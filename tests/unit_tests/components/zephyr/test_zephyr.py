@@ -13,6 +13,7 @@ from esphome.components.esp32.zephyr_variants.esp32_family import (
     _uart_signal_groups as _esp32_uart_signal_groups,
     uart_pinctrl as _esp32_uart_group_roles,
 )
+from esphome.components.i2c import CONFIG_SCHEMA as I2C_CONFIG_SCHEMA
 from esphome.components.nrf.zephyr_variants.nordic_family import (
     uart_group_roles as _nordic_uart_group_roles,
 )
@@ -125,6 +126,28 @@ def _validate(config: dict) -> dict:
         else PLATFORM_NRF
     )
     return zephyr_config_schema(config, VARIANT_MODULES, platform)
+
+
+@pytest.mark.parametrize(
+    ("config", "warns"),
+    [
+        ({}, True),
+        ({"scan": False}, False),
+        ({"scan": True, "dts_node_override": "&i2c0"}, True),
+        ({"scan": True, "dts_node_override": "custom_i2c"}, False),
+    ],
+)
+def test_psoc6_warns_for_address_only_scb0_scan(
+    config: dict[str, bool | str],
+    warns: bool,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _validate(minimal_variant_config("CY8C624A", tmp_path))
+
+    I2C_CONFIG_SCHEMA(config)
+
+    assert ("Set scan: false" in caplog.text) is warns
 
 
 def test_empty_zephyr_data_has_every_zephyr_data_key() -> None:
