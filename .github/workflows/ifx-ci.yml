@@ -72,6 +72,11 @@ jobs:
             tests+=(tests/unit_tests/components/infineon)
           fi
           python -m pytest -q --no-cov "${tests[@]}"
+      - name: Run portable radar protocol and SPI delegate tests
+        run: |
+          cmake -S ifx/tests/bgt60tr13c -B build/ifx-radar-tests -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/ifx-radar-tests --parallel 2
+          ctest --test-dir build/ifx-radar-tests --output-on-failure
       - name: Restore managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true'
         id: zephyr-cache

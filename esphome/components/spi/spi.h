@@ -263,6 +263,10 @@ class SPIDelegate {
   // check if device is ready
   virtual bool is_ready();
 
+  // Optional sticky transaction error reporting. Unsupported backends must not imply success.
+  virtual bool supports_transaction_status() const { return false; }
+  virtual bool transaction_failed() const { return true; }
+
 #ifdef USE_SPI_PSRAM_DMA
   void set_psram_dma(bool enable) { this->psram_dma_ = enable; }
 #endif
@@ -517,6 +521,10 @@ class SPIDevice : public SPIClient {
   void enable() { this->delegate_->begin_transaction(); }
 
   void disable() { this->delegate_->end_transaction(); }
+
+  bool supports_transaction_status() const { return this->delegate_->supports_transaction_status(); }
+
+  bool transaction_failed() const { return this->delegate_->transaction_failed(); }
 
   void write_array(const uint8_t *data, size_t length) { this->delegate_->write_array(data, length); }
 

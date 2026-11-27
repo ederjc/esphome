@@ -64,11 +64,13 @@ ZephyrSPIDelegate::~ZephyrSPIDelegate() {
 // The driver applies cfg_ (and the SCK idle level for CPOL) at the start of each transfer, so switch
 // it over with an empty transfer before CS goes low; otherwise SCK changes level while CS is active.
 void ZephyrSPIDelegate::begin_transaction() {
+  this->transaction_failed_ = false;
   if (this->bus_->active_delegate_ != this) {
     const int err = spi_transceive(this->bus_->interface_, &this->cfg_, nullptr, nullptr);
     if (err == 0) {
       this->bus_->active_delegate_ = this;
     } else {
+      this->transaction_failed_ = true;
       ESP_LOGE(TAG, "spi_transceive failed: %d", err);
     }
   }
@@ -87,6 +89,7 @@ void ZephyrSPIDelegate::transceive_(const uint8_t *tx, uint8_t *rx, size_t lengt
   const int err = spi_transceive(this->bus_->interface_, &this->cfg_, tx != nullptr ? &tx_set : nullptr,
                                  rx != nullptr ? &rx_set : nullptr);
   if (err != 0) {
+    this->transaction_failed_ = true;
     ESP_LOGE(TAG, "spi_transceive failed: %d", err);
     if (rx != nullptr)
       memset(rx, 0, length);
@@ -97,6 +100,11 @@ uint8_t ZephyrSPIDelegate::transfer(uint8_t data) {
   uint8_t rx = 0;
   this->transceive_(&data, &rx, 1);
   return rx;
+}
+
+void ZephyrSPIDelegate::write(uint16_t data, size_t num_bits) {
+  this->transaction_failed_ = true;
+  ESP_LOGE(TAG, "variable length write not implemented");
 }
 
 void ZephyrSPIDelegate::transfer(uint8_t *ptr, size_t length) { this->transceive_(ptr, ptr, length); }
@@ -133,8 +141,10 @@ void ZephyrSPIDelegate::write_cmd_addr_data(size_t cmd_bits, uint32_t cmd, size_
 void ZephyrSPIDelegate::write_cmd_addr_data_split_workaround_(size_t cmd_bits, uint32_t cmd, size_t addr_bits,
                                                               uint32_t address, const uint8_t *data, size_t length,
                                                               uint8_t bus_width) {
-  if (cmd_bits % 8 != 0 || addr_bits % 8 != 0) {
-    ESP_LOGE(TAG, "write_cmd_addr_data: cmd_bits/addr_bits must be byte-aligned on this backend");
+  if (cmd_bits > 32 || addr_bits > 32 || cmd_bits % 8 != 0 || addr_bits % 8 != 0 ||
+      (bus_width != 1 && bus_width != 4 && bus_width != 8) || (data == nullptr && length != 0)) {
+    this->transaction_failed_ = true;
+    ESP_LOGE(TAG, "write_cmd_addr_data: invalid fields, bus width or data buffer");
     return;
   }
 
@@ -150,6 +160,7 @@ void ZephyrSPIDelegate::write_cmd_addr_data_split_workaround_(size_t cmd_bits, u
     spi_buf_set header_set{&header_buf, 1};
     int err = spi_transceive(this->bus_->interface_, &this->cfg_, &header_set, nullptr);
     if (err != 0) {
+      this->transaction_failed_ = true;
       ESP_LOGE(TAG, "spi_transceive (cmd/addr) failed: %d", err);
       return;
     }
@@ -163,6 +174,7 @@ void ZephyrSPIDelegate::write_cmd_addr_data_split_workaround_(size_t cmd_bits, u
   spi_buf_set data_set{&data_buf, 1};
   int err = spi_transceive(this->bus_->interface_, data_cfg, &data_set, nullptr);
   if (err != 0) {
+    this->transaction_failed_ = true;
     ESP_LOGE(TAG, "spi_transceive (data) failed: %d", err);
   }
 }
