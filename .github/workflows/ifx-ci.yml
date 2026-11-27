@@ -3,7 +3,7 @@ name: Infineon fork CI
 
 on:
   pull_request:
-    branches: [ifx/dev]
+    branches: [ifx/dev, feat/psoc6-radar-spi]
   push:
     branches: [ifx/dev]
 
@@ -97,6 +97,8 @@ jobs:
         run: python -m esphome compile "$INFINEON_SMOKE_CONFIG"
       - name: Compile onboard radar SPI identification
         run: python -m esphome compile tests/components/infineon/test-radar-spi.zephyr.yaml
+      - name: Compile the BGT60TR13C register diagnostic
+        run: python -m esphome compile tests/components/infineon_bgt60tr13c/test-diagnostic.zephyr.yaml
       - name: Save managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true' && steps.zephyr-cache.outputs.cache-hit != 'true' && github.event_name == 'push'
         uses: actions/cache/save@v6.1.0
