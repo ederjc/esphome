@@ -57,6 +57,38 @@ consecutive boot counters. Run it from the repository root:
 The runner does not actuate the user button or observe the LED; verify those
 separately before marking the GPIO input test as passed.
 
+## BMM350 fresh-capture smoke test
+
+Use the credential-free `ifx/fixtures/bmm350.yaml` and the corresponding freshly
+built `zephyr.hex`. Reserve the kit as above; the parent bench harness/kit owner
+performs these steps, not the component author:
+
+1. Halt the target, program the fresh image, and verify flash while it remains
+   halted. Save the image digest and programming verification result.
+2. Open UART0/SCB5 at the fixture's logger baud rate and clear the serial receive
+   buffer while halted. Discard all earlier serial data.
+3. Reset and run the target. Require a new `BMM350 smoke boot` marker after this
+   reset before accepting any samples. Ignore pre-marker values; a missing
+   fresh marker fails the capture. The fixture emits this marker at boot
+   priority -100.
+4. Capture at least **five live publications per channel** after the fresh
+   marker: `BMM350 field_x=... uT`, `field_y`, `field_z` and
+   `BMM350 temperature=... C`. These lines come only from `on_value` callbacks;
+   cached-state polling and replayed logs do not count.
+5. Every accepted sample must be finite. Require temperature in **[-40, 85] °C**
+   and each native magnetic axis in **[-2000, 2000] µT**, inclusively. Reject
+   a fully-zero XYZ window (all three axes zero throughout the accepted
+   window), not individual zero triples; an individual axis may legitimately
+   approach zero.
+   Retain the sample counts, values and boot marker in sanitized evidence.
+
+This verifies fresh firmware, initialization, data delivery and basic
+plausibility, **not calibrated magnetic accuracy**. Do not claim heading,
+orientation calibration or hard/soft iron compensation. Peer review approval
+and fork CI must still be green before merging; actual kit evidence remains
+mandatory. Do not infer hardware success from compilation, vendor-oracle
+vectors or the Windows C++ runner's intentional skip.
+
 Link evidence from the PR: commit tested, board and revision, config or build
 command, relevant tool versions, test steps, expected and actual results, and
 sanitized logs or captures. List what was not tested. If no kit behavior could
