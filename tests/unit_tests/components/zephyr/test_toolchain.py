@@ -42,7 +42,7 @@ def test_tools_missing_before_configure(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "platform", ["esp32", "nrf", "nxp", "renesas", "rp2", "silabs", "stm32"]
+    "platform", ["esp32", "infineon", "nrf", "nxp", "renesas", "rp2", "silabs", "stm32"]
 )
 def test_registered_for_zephyr(platform: str) -> None:
     """Keyed by the target platform, which a Zephyr build keeps as its own name."""

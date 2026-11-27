@@ -19,6 +19,7 @@ from esphome.const import (
     PLATFORM_ESP32,
     PLATFORM_ESP8266,
     PLATFORM_HOST,
+    PLATFORM_INFINEON,
     PLATFORM_LN882X,
     PLATFORM_NRF,
     PLATFORM_NRF52,
@@ -35,6 +36,7 @@ from esphome.core import CORE, EsphomeError
 CONFIG = {"esphome": {"name": "test"}}
 
 _ZEPHYR_TOOLCHAIN_PLATFORMS = (
+    PLATFORM_INFINEON,
     PLATFORM_NRF,
     PLATFORM_NXP,
     PLATFORM_RENESAS,

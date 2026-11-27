@@ -10,7 +10,7 @@ from esphome.const import Toolchain
 from esphome.core import CORE, CoroPriority
 
 # Platforms whose to_code only hands a Zephyr toolchain build to zephyr
-THIN_PLATFORMS: list[str] = ["nrf", "nxp", "renesas", "silabs", "stm32"]
+THIN_PLATFORMS: list[str] = ["infineon", "nrf", "nxp", "renesas", "silabs", "stm32"]
 # Also esp32 and rp2, whose other toolchains build without the hook
 RUN_COMPILE_PLATFORMS: list[str] = [*THIN_PLATFORMS, "esp32", "rp2"]
 

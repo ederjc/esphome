@@ -106,6 +106,7 @@ from tests.unit_tests.components.zephyr.zephyr_state import (
     VARIANT_MODULES,
     VARIANTS,
     empty_zephyr_data,
+    minimal_variant_config,
     use_empty_devicetree,
     zephyr_platform_framework,
 )
@@ -1852,9 +1853,11 @@ def test_variant_config_schema_raises_for_unknown_variant(
 
 
 @pytest.mark.parametrize("variant", sorted(VARIANTS))
-def test_variant_config_schema_round_trips_cleanly(variant: str) -> None:
+def test_variant_config_schema_round_trips_cleanly(
+    variant: str, tmp_path: Path
+) -> None:
     _init_variant_schema_core()
-    validated = _validate({CONF_VARIANT: variant})
+    validated = _validate(minimal_variant_config(variant, tmp_path))
 
     # Simulate upload_program()'s cache-repopulation path: re-run CONFIG_SCHEMA on
     # the already-validated config in a fresh CORE.data state, exactly as it would
@@ -1979,8 +1982,10 @@ def zephyr_data_snapshot() -> dict:
 
 
 @pytest.mark.parametrize("variant", sorted(VARIANTS))
-def test_upload_program_restores_what_validation_set(variant: str) -> None:
-    validated = _validate_zephyr_config({CONF_VARIANT: variant})
+def test_upload_program_restores_what_validation_set(
+    variant: str, tmp_path: Path
+) -> None:
+    validated = _validate_zephyr_config(minimal_variant_config(variant, tmp_path))
     expected, restored = _restore_from_cache(validated)
     assert restored == expected
 

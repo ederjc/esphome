@@ -1093,6 +1093,7 @@ FILTER_SOURCE_FILES = filter_source_files_from_platform(
         # Remove NRF52_ZEPHYR when platform: nrf52 deprecation is complete.
         "logger_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF52_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,
@@ -1114,6 +1115,7 @@ FILTER_SOURCE_FILES = filter_source_files_from_platform(
         # Remove NRF52_ZEPHYR when platform: nrf52 deprecation is complete.
         "task_log_buffer_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF52_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,

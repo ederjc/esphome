@@ -56,6 +56,7 @@ class Platform(StrEnum):
     ESP32 = "esp32"
     ESP8266 = "esp8266"
     HOST = "host"
+    INFINEON = "infineon"
     LIBRETINY_OLDSTYLE = "libretiny"
     LN882X = "ln882x"
     NRF = "nrf"
@@ -132,6 +133,7 @@ class PlatformFramework(Enum):
 
     # Zephyr framework platforms
     ESP32_ZEPHYR = (Platform.ESP32, Framework.ZEPHYR)
+    INFINEON_ZEPHYR = (Platform.INFINEON, Framework.ZEPHYR)
     NRF52_ZEPHYR = (Platform.NRF52, Framework.ZEPHYR)
     NRF_ZEPHYR = (Platform.NRF, Framework.ZEPHYR)
     NXP_ZEPHYR = (Platform.NXP, Framework.ZEPHYR)
@@ -149,6 +151,7 @@ PLATFORM_BK72XX = Platform.BK72XX
 PLATFORM_ESP32 = Platform.ESP32
 PLATFORM_ESP8266 = Platform.ESP8266
 PLATFORM_HOST = Platform.HOST
+PLATFORM_INFINEON = Platform.INFINEON
 PLATFORM_LIBRETINY_OLDSTYLE = Platform.LIBRETINY_OLDSTYLE
 PLATFORM_LN882X = Platform.LN882X
 PLATFORM_NRF = Platform.NRF

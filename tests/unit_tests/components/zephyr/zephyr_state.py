@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
 from esphome.components.esp32 import zephyr_variants as esp32_variants
+from esphome.components.infineon import zephyr_variants as infineon_variants
 from esphome.components.nrf import zephyr_variants as nrf_variants
 from esphome.components.nxp import zephyr_variants as nxp_variants
 from esphome.components.renesas import zephyr_variants as renesas_variants
@@ -26,11 +28,24 @@ from esphome.components.zephyr.variants import (
     set_variant_core_data,
 )
 import esphome.config_validation as cv
-from esphome.const import CONF_BOARD, KEY_CORE, Framework, Platform, PlatformFramework
+from esphome.const import (
+    CONF_BOARD,
+    CONF_FRAMEWORK,
+    CONF_PATH,
+    CONF_SOURCE,
+    CONF_TYPE,
+    CONF_VARIANT,
+    KEY_CORE,
+    TYPE_LOCAL,
+    Framework,
+    Platform,
+    PlatformFramework,
+)
 from esphome.core import CORE
 
 _PLATFORM_VARIANT_MODULES: dict[Platform, dict[str, ModuleType]] = {
     Platform.ESP32: esp32_variants.VARIANT_MODULES,
+    Platform.INFINEON: infineon_variants.VARIANT_MODULES,
     Platform.NRF: nrf_variants.VARIANT_MODULES,
     Platform.NXP: nxp_variants.VARIANT_MODULES,
     Platform.RENESAS: renesas_variants.VARIANT_MODULES,
@@ -47,6 +62,20 @@ VARIANT_MODULES: dict[str, ModuleType] = {
 VARIANTS: dict[str, ZephyrVariant] = {
     name: mod.VARIANT for name, mod in VARIANT_MODULES.items()
 }
+
+
+def minimal_variant_config(variant: str, tmp_path: Path) -> dict[str, Any]:
+    """Provide required framework configuration without accessing the network."""
+    config: dict[str, Any] = {CONF_VARIANT: variant}
+    if variant == "CY8C624A":
+        CORE.config_path = tmp_path / "test.yaml"
+        (tmp_path / "VERSION").write_text(
+            "VERSION_MAJOR = 4\nVERSION_MINOR = 5\nPATCHLEVEL = 0\n", encoding="utf-8"
+        )
+        config[CONF_FRAMEWORK] = {
+            CONF_SOURCE: {CONF_TYPE: TYPE_LOCAL, CONF_PATH: str(tmp_path)}
+        }
+    return config
 
 
 def variant_resolved(variant: str) -> ZephyrVariantResolved:

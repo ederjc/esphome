@@ -27,6 +27,7 @@ NATIVE_TOOLCHAIN_MODULES = {
         (platform, Toolchain.ZEPHYR): "esphome.components.zephyr.toolchain"
         for platform in (
             "esp32",
+            "infineon",
             "nrf",
             "nxp",
             "renesas",

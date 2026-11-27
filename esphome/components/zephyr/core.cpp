@@ -19,6 +19,9 @@
 #if defined(USE_ZEPHYR_VARIANT_FAMILY_RPI_PICO) && defined(USE_WIFI)
 #include <zephyr/net/net_if.h>
 #endif
+#ifdef USE_ZEPHYR_VARIANT_FAMILY_INFINEON_PSOC6
+#include "esphome/core/log.h"
+#endif
 
 // Probe rather than require: this header only exists once another component (sha256,
 // api encryption) has turned on the MBEDTLS Kconfig.
@@ -96,11 +99,28 @@ void get_mac_address_raw(uint8_t *mac) {  // NOLINT(readability-non-const-parame
     return;
   }
 #endif
+#ifdef USE_ZEPHYR_VARIANT_FAMILY_INFINEON_PSOC6
+  uint8_t uid[8];
+  if (hwinfo_get_device_id(uid, sizeof(uid)) != sizeof(uid)) {
+    ESP_LOGE("zephyr", "Could not read the PSoC 6 device ID");
+    memset(mac, 0, 6);
+    return;
+  }
+  // The full silicon ID includes lot bits lost if HWINFO reads only six bytes.
+  uint64_t hash = 14695981039346656037ULL;
+  for (uint8_t byte : uid)
+    hash = (hash ^ byte) * 1099511628211ULL;
+  hash ^= hash >> 48;
+  put_be16(mac, static_cast<uint16_t>(hash >> 32));
+  put_be32(mac + 2, static_cast<uint32_t>(hash));
+  mac[0] = (mac[0] & 0xFC) | 0x02;  // Locally administered unicast.
+#else
   // SiWx91x has no hwinfo backend yet: the weak default returns -ENOSYS, giving an
   // all-zero MAC instead of a link failure.
   if (hwinfo_get_device_id(mac, 6) != 6) {
     memset(mac, 0, 6);
   }
+#endif
 #endif
 }
 #endif
