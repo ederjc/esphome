@@ -81,6 +81,10 @@ unstaged, unverified work item; it is not enabled by this fixture.
   then explicit completion. There is no independently scheduled interval.
   Concurrent START, incomplete/invalid runs and callback delivery while stopped
   latch failure; `COMPLETE` requires a full validated >=5 s window in each run.
+- `ifx/pdm-stereo-ci.yaml`: compiles the same fixture in fork CI, replacing
+  only the local Zephyr checkout with the PDMv1 source from
+  [ederjc/zephyr#2](https://github.com/ederjc/zephyr/pull/2). CI checks that the
+  non-release tag selects the exact reviewed Zephyr commit.
 - Fifteen focused pytest cases passed, including deterministic fixture sequencing,
   duplicate ownership, alias
   refusal, polling-budget boundaries, unsupported formats, plain

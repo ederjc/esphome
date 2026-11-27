@@ -90,6 +90,16 @@ jobs:
       - name: Compile Infineon firmware
         if: steps.smoke.outputs.enabled == 'true'
         run: python -m esphome compile "$INFINEON_SMOKE_CONFIG"
+      - name: Compile the PSoC 6 stereo PDM fixture
+        shell: bash
+        run: |
+          ref='refs/tags/ifx-psoc6-v4.5.0-pdm.1^{}'
+          resolved=$(git ls-remote --exit-code https://github.com/ederjc/zephyr.git "$ref")
+          if [[ "$resolved" != "12c2b1aa0bf8511ff5523e4e651ee3ed63466d06"$'\t'"$ref" ]]; then
+            echo "::error::The PDMv1 Zephyr tag no longer points to the reviewed commit."
+            exit 1
+          fi
+          python -m esphome compile ifx/pdm-stereo-ci.yaml
       - name: Save managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true' && steps.zephyr-cache.outputs.cache-hit != 'true' && github.event_name == 'push'
         uses: actions/cache/save@v6.1.0
