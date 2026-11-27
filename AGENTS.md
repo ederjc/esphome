@@ -2,6 +2,8 @@
 
 This document provides essential context for AI models interacting with this project. Adhering to these guidelines will ensure consistency and maintain code quality.
 
+For work on the Infineon PSOC 6 fork, start with the [fork guide](ifx/README.md).
+
 ## 1. Project Overview & Purpose
 
 *   **Primary Goal:** ESPHome is a system to configure microcontrollers (like ESP32, ESP8266, RP2040, and LibreTiny-based chips) using simple yet powerful YAML configuration files. It generates C++ firmware that can be compiled and flashed to these devices, allowing users to control them remotely through home automation systems.
