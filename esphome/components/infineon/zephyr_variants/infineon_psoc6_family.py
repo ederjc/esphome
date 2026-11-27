@@ -1,5 +1,6 @@
 """Code shared by Infineon PSoC 6 variants."""
 
+import esphome.codegen as cg
 from esphome.components.zephyr import zephyr_add_prj_conf
 from esphome.types import ConfigType
 
@@ -17,6 +18,7 @@ def bootloader(advanced: ConfigType) -> str:
 
 
 def to_code(config: ConfigType) -> None:
+    cg.add_build_flag("-DUSE_ZEPHYR_VARIANT_FAMILY_INFINEON_PSOC6")
     zephyr_add_prj_conf("CPP", True)
     zephyr_add_prj_conf("REQUIRES_FULL_LIBCPP", True)
     zephyr_add_prj_conf("FPU", True)

@@ -38,8 +38,12 @@ static const device *const WDT = DEVICE_DT_GET(DT_ALIAS(watchdog0));
 // (wdt_silabs_siwx91x.c) reject callback + WDT_FLAG_RESET_SOC together (-ENOTSUP),
 // leaving the watchdog unarmed -- their single-channel watchdogs only support
 // callback or hardware reset, not both.
+// PSoC 6 interrupts on the first watchdog match, but resets on the third.
+// Keep hardware reset without warning about a healthy, still-feeding application.
 #if defined(USE_ZEPHYR_WDT_MS) && defined(USE_LOGGER) && !defined(USE_ZEPHYR_VARIANT_FAMILY_RENESAS) && \
-    !defined(USE_ZEPHYR_VARIANT_FAMILY_SILABS) && !defined(USE_ZEPHYR_VARIANT_FAMILY_SILABS_SIWX91X)
+    !defined(USE_ZEPHYR_VARIANT_FAMILY_SILABS) && !defined(USE_ZEPHYR_VARIANT_FAMILY_SILABS_SIWX91X) && \
+    !defined(USE_ZEPHYR_VARIANT_FAMILY_INFINEON_PSOC6)
+#define ESPHOME_ZEPHYR_WATCHDOG_WARNING
 // Zephyr compiles arch_stack_walk() only where the architecture has it (not Xtensa;
 // on Arm only with EXTRA_EXCEPTION_INFO).
 #ifdef CONFIG_ARCH_STACKWALK
@@ -147,8 +151,7 @@ void arch_init() {
     wdt_config.window.max = USE_ZEPHYR_WDT_MS;
     // some families can't handle the callback, review periodically for correctness
     // since this is behavior is driven by zephyr
-#if defined(USE_LOGGER) && !defined(USE_ZEPHYR_VARIANT_FAMILY_RENESAS) && \
-    !defined(USE_ZEPHYR_VARIANT_FAMILY_SILABS) && !defined(USE_ZEPHYR_VARIANT_FAMILY_SILABS_SIWX91X)
+#ifdef ESPHOME_ZEPHYR_WATCHDOG_WARNING
     wdt_config.callback = wdt_warning_cb;
 #endif
 #elif !defined(USE_BOOTLOADER_MCUBOOT)
