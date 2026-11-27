@@ -16,11 +16,16 @@ from esphome.const import (
     CONF_SAMPLE_RATE,
     CONF_SIZE,
 )
-from esphome.core import CORE
+from esphome.core import CORE, EsphomeError
 import esphome.final_validate as fv
 from esphome.types import ConfigType
 
-AUTO_LOAD = ["ring_buffer"]
+
+def _auto_load() -> list[str]:
+    return [] if CORE.using_toolchain_zephyr else ["ring_buffer"]
+
+
+AUTO_LOAD = _auto_load
 CODEOWNERS = ["@kahrendt"]
 DOMAIN = "audio"
 audio_ns = cg.esphome_ns.namespace("audio")
@@ -173,13 +178,22 @@ CODECS_SCHEMA = cv.Schema(
     }
 )
 
+
+def _validate_platform(config: ConfigType) -> ConfigType:
+    if CORE.using_toolchain_zephyr:
+        if CONF_CODECS in config:
+            raise cv.Invalid("Audio codecs are not supported by the Zephyr backend")
+        return config
+    return cv.only_on_esp32(config)
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
             cv.Optional(CONF_CODECS): _maybe_empty_codec(CODECS_SCHEMA),
         }
     ),
-    cv.only_on_esp32,
+    _validate_platform,
 )
 
 AUDIO_COMPONENT_SCHEMA = cv.Schema(
@@ -328,6 +342,19 @@ def _emit_memory_pair(value: str | None, psram_key: str, internal_key: str) -> N
 
 
 async def to_code(config: ConfigType) -> None:
+    if CORE.using_toolchain_zephyr:
+        data = _get_data()
+        if config.get(CONF_CODECS) or any(
+            (
+                data.flac_support,
+                data.mp3_support,
+                data.opus_support,
+                data.wav_support,
+                data.micro_decoder_support,
+            )
+        ):
+            raise EsphomeError("Audio codecs are not supported by the Zephyr backend")
+        return
     request_http_client()
     # HTTPS streams verify the server against the root certificate bundle
     require_certificate_bundle()

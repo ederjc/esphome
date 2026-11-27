@@ -3,3 +3,6 @@
 *.png binary
 *.gif binary
 *.apng binary
+
+# Preserve unified-diff context without treating its prefixes as source whitespace.
+ifx/zephyr-pdm-v1/*.patch whitespace=-blank-at-eol,-space-before-tab

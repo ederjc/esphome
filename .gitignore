@@ -104,6 +104,7 @@ venv-*/
 !.vscode/settings.default.json
 CMakeListsPrivate.txt
 CMakeLists.txt
+!ifx/zephyr-pdm-v1/tests/CMakeLists.txt
 
 # User-specific stuff:
 .idea/**/workspace.xml
@@ -155,5 +156,6 @@ sdkconfig.*
 /components
 /managed_components
 /dependencies.lock
+/.pdm-workspace/
 
 api-docs/

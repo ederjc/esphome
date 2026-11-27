@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.20.0)
+if(DEFINED Python3_EXECUTABLE)
+  file(TO_CMAKE_PATH "${Python3_EXECUTABLE}" Python3_EXECUTABLE)
+endif()
+if(DEFINED ZEPHYR_MODULES)
+  file(TO_CMAKE_PATH "${ZEPHYR_MODULES}" ZEPHYR_MODULES)
+endif()
+if(DEFINED USER_CACHE_DIR)
+  file(TO_CMAKE_PATH "${USER_CACHE_DIR}" USER_CACHE_DIR)
+endif()
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(pdm_v1_tests)
+target_include_directories(app BEFORE PRIVATE fakes ../../..)
+target_compile_definitions(app PRIVATE CONFIG_DMIC_INFINEON_PDM_V1_QUEUE_SIZE=4)
+target_compile_definitions(app PRIVATE USE_ZEPHYR)
+target_sources(app PRIVATE driver.c pcm.cpp backend.cpp metrics.cpp
+  ../../../esphome/components/zephyr_dmic/zephyr_dmic.cpp
+  ../../../esphome/components/audio/audio.cpp)
