@@ -263,6 +263,7 @@ CONFIG_SCHEMA = cv.All(
                 nrf52="100kHz",
                 host="50kHz",
                 esp32_zephyr="100kHz",
+                infineon="100kHz",
                 nrf="100kHz",
                 nxp="100kHz",
                 renesas="100kHz",
@@ -596,6 +597,7 @@ _platform_filter = filter_source_files_from_platform(
         "i2c_bus_software.cpp": {PlatformFramework.BK72XX_ARDUINO},
         "i2c_bus_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF52_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,

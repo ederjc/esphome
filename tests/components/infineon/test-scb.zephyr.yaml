@@ -1,0 +1,68 @@
+esphome:
+  name: psoc6-scb-smoke
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          // Verify actual transfers separately from the address-only scan.
+          const uint8_t probes[][2] = {{0x68, 0x00}, {0x77, 0x0D}};
+          for (const auto &probe : probes) {
+            uint8_t value{};
+            if (id(scb0_bus).write_readv(probe[0], &probe[1], 1, &value, 1) == i2c::ERROR_OK) {
+              ESP_LOGI("scb_smoke", "SCB0 device 0x%02X ID: 0x%02X", probe[0], value);
+            } else {
+              ESP_LOGW("scb_smoke", "SCB0 device 0x%02X did not return its ID", probe[0]);
+            }
+          }
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+
+logger:
+  hardware_uart: UART0  # SCB5 through KitProg3; leave it off the loopback pins.
+
+# SCB0 (i2c0): SCL P0.2, SDA P0.3. The onboard sensors need no jumper.
+# The pinned Zephyr 4.5 CAT1 HAL rejects address-only probes, so a scan
+# can report no devices even when the BMI270 (0x68) and DPS368 (0x77) respond.
+i2c:
+  id: scb0_bus
+  scan: true
+
+# SCB1 (uart1): jumper J17.2 (P10.1 TX) to J17.1 (P10.0 RX), both 3.3 V.
+uart:
+  id: scb1_loopback
+  port: UART1
+  baud_rate: 115200
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          uint8_t discarded;
+          for (size_t pending = id(scb1_loopback).available(); pending != 0; --pending) {
+            if (!id(scb1_loopback).read_byte(&discarded)) {
+              break;
+            }
+          }
+      - uart.write:
+          id: scb1_loopback
+          data: [0x53, 0x43, 0x42, 0x31]
+      - wait_until:
+          condition:
+            lambda: return id(scb1_loopback).available() >= 4;
+          timeout: 1s
+      - lambda: |-
+          uint8_t rx[4];
+          if (id(scb1_loopback).available() >= sizeof(rx) &&
+              id(scb1_loopback).read_array(rx, sizeof(rx)) &&
+              rx[0] == 0x53 && rx[1] == 0x43 && rx[2] == 0x42 && rx[3] == 0x31) {
+            ESP_LOGI("scb_smoke", "SCB1 loopback passed");
+          } else {
+            ESP_LOGW("scb_smoke", "SCB1 loopback failed; check the J17.1-to-J17.2 jumper");
+          }

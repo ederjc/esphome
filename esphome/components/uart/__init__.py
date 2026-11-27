@@ -962,6 +962,7 @@ _platform_filter = filter_source_files_from_platform(
         },
         "uart_component_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,
             PlatformFramework.RENESAS_ZEPHYR,
