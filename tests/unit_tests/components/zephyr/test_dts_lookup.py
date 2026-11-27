@@ -13,7 +13,8 @@ from typing import Any, NoReturn
 
 import pytest
 
-from esphome.components.zephyr import dts_lookup
+from esphome.components import zephyr
+from esphome.components.zephyr import dts_lookup, framework
 from esphome.components.zephyr.const import KEY_BOARD_EDT_CACHE, KEY_ZEPHYR
 from esphome.components.zephyr.dts_lookup import (
     _find_board_dir,
@@ -1575,6 +1576,33 @@ def test_find_cpp_caches_first_working_candidate(
     assert _find_cpp() == "/usr/bin/cpp"
     assert _find_cpp() == "/usr/bin/cpp"
     assert calls == ["/usr/bin/cpp"]
+
+
+def test_uses_sdk_preprocessor_if_path_has_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    zephyr_base = tmp_path / "custom-checkout"
+    zephyr_base.mkdir()
+    (zephyr_base / "SDK_VERSION").write_text("1.0.1\n", encoding="utf-8")
+    toolchain = "arm-zephyr-eabi"
+    sdk = tmp_path / "sdk"
+    exe = f"{toolchain}-gcc" + (".exe" if sys.platform == "win32" else "")
+    expected = str(sdk / "gnu" / toolchain / "bin" / exe)
+    monkeypatch.setattr(dts_lookup.shutil, "which", lambda _: None)
+    monkeypatch.setattr(
+        zephyr, "zephyr_variant", lambda: SimpleNamespace(toolchain=toolchain)
+    )
+    monkeypatch.setattr(framework, "install_toolchain", lambda _path, _toolchain: sdk)
+    monkeypatch.setattr(
+        dts_lookup.subprocess,
+        "run",
+        lambda cmd, **kwargs: SimpleNamespace(returncode=int(cmd[0] != expected)),
+    )
+    CORE.data[KEY_ZEPHYR] = empty_zephyr_data()
+
+    dts_lookup.ensure_dts_preprocessor(zephyr_base)
+
+    assert _find_cpp() == expected
 
 
 def test_cpp_candidate_check_uses_real_command(

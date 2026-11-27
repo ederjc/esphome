@@ -1790,11 +1790,12 @@ def zephyr_config_schema(
 async def zephyr_toolchain_to_code(config: ConfigType) -> None:
     """Code generation of a platform building a Zephyr variant."""
     from .dts_lookup import (  # noqa: PLC0415
+        ensure_dts_preprocessor,
         log_board_capabilities,
         validate_board,
         validate_board_revision,
     )
-    from .framework import build_workspace, check_and_install  # noqa: PLC0415
+    from .framework import build_workspace, check_and_install, get_zephyr_base  # noqa: PLC0415
 
     variant = zephyr_variant_name()
     # Code generation reads the board's devicetree from the workspace; the compile
@@ -1808,6 +1809,7 @@ async def zephyr_toolchain_to_code(config: ConfigType) -> None:
         zephyr_data()["ninja_version"],
         zephyr_data()["sdk_source"],
     )
+    ensure_dts_preprocessor(get_zephyr_base())
 
     board = zephyr_data()["board"]
     if not validate_board(board):
@@ -2209,12 +2211,13 @@ def run_compile(args: object, config: ConfigType) -> bool:
         source,
     )
     python_executable, framework_path = get_build_paths(manifest, version, source)
+    zephyr_base = get_zephyr_base()
     env = get_build_env(
         python_executable,
         framework_path,
-        install_toolchain(framework_path, toolchain),
+        install_toolchain(zephyr_base, toolchain),
         resolve_ccache_path(),
-        get_zephyr_base(),
+        zephyr_base,
     )
     if manifest is SILABS:
         from .commander_setup import check_and_install as commander_install  # noqa: PLC0415

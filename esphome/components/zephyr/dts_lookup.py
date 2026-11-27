@@ -2,6 +2,7 @@ from collections.abc import Callable, Iterator
 import contextlib
 import importlib
 import logging
+import os
 from pathlib import Path
 import re
 import shutil
@@ -858,7 +859,9 @@ def _preprocess_dts_file(
     (assembler-with-cpp, no standard includes). Raises _DtsReadError on failure."""
     cpp = _find_cpp()
     if cpp is None:
-        raise _DtsReadError("No working C preprocessor (cpp, gcc or cc) found in PATH")
+        raise _DtsReadError(
+            "No working C preprocessor found on PATH or in the Zephyr SDK"
+        )
 
     include_dirs = _get_dts_include_paths(zephyr_base) + extra_include_dirs
     cmd = _cpp_command(cpp, include_dirs, src_file)
@@ -985,7 +988,7 @@ def _cpp_candidate_works(path: str) -> bool:
 
 
 def _find_cpp() -> str | None:
-    """Return the cached path to a working cpp/gcc/cc on PATH, or None."""
+    """Return the cached preprocessor or look for one on PATH."""
     zd = CORE.data[KEY_ZEPHYR]
     if zd[KEY_CPP_PATH] == "":
         found = None
@@ -996,6 +999,28 @@ def _find_cpp() -> str | None:
                 break
         zd[KEY_CPP_PATH] = found
     return zd[KEY_CPP_PATH]
+
+
+def ensure_dts_preprocessor(zephyr_base: Path) -> None:
+    """Use the managed cross-compiler if the host has no C preprocessor."""
+    from . import zephyr_variant  # noqa: PLC0415
+    from .framework import _read_sdk_version, install_toolchain  # noqa: PLC0415
+    from .sdk_install import sdk_toolchain_path  # noqa: PLC0415
+
+    if _find_cpp() is not None:
+        return
+    toolchain = zephyr_variant().toolchain
+    if toolchain is None:
+        return
+    sdk = install_toolchain(zephyr_base, toolchain)
+    version = _read_sdk_version(zephyr_base)
+    binary = f"{toolchain}-gcc"
+    if os.name == "nt":
+        binary += ".exe"
+    compiler = sdk_toolchain_path(sdk, version, toolchain) / "bin" / binary
+    if not _cpp_candidate_works(str(compiler)):
+        raise EsphomeError(f"Zephyr SDK preprocessor did not work: {compiler}")
+    CORE.data[KEY_ZEPHYR][KEY_CPP_PATH] = str(compiler)
 
 
 def _get_dts_include_paths(zephyr_base: Path) -> list[str]:

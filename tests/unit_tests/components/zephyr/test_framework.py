@@ -702,11 +702,11 @@ def zephyr_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return (tmp_path / "cache").resolve()
 
 
-def _make_framework(tmp_path: Path, sdk_version: str = "1.0.1") -> Path:
-    framework_path = tmp_path / "framework"
-    (framework_path / "zephyr").mkdir(parents=True)
-    (framework_path / "zephyr" / "SDK_VERSION").write_text(sdk_version)
-    return framework_path
+def _make_zephyr_base(tmp_path: Path, sdk_version: str = "1.0.1") -> Path:
+    zephyr_base = tmp_path / "custom-checkout"
+    zephyr_base.mkdir()
+    (zephyr_base / "SDK_VERSION").write_text(sdk_version)
+    return zephyr_base
 
 
 @pytest.fixture
@@ -751,11 +751,11 @@ def test_toolchain_path_default_is_global_cache(
 def test_install_toolchain_downloads_minimal_and_toolchain(
     tmp_path: Path, mock_download: MagicMock
 ) -> None:
-    """The SDK version comes from the workspace's zephyr/SDK_VERSION."""
-    framework_path = _make_framework(tmp_path)
+    """The SDK version comes from the active checkout, regardless of folder name."""
+    zephyr_base = _make_zephyr_base(tmp_path)
     sdk_path = framework._get_toolchain_path("1.0.1", TOOLCHAIN)
 
-    assert framework.install_toolchain(framework_path, TOOLCHAIN) == sdk_path
+    assert framework.install_toolchain(zephyr_base, TOOLCHAIN) == sdk_path
 
     (minimal, toolchain) = mock_download.call_args_list
     assert minimal.args[0] == sdk_install.SDK_NG_MINIMAL_MIRRORS
@@ -770,10 +770,10 @@ def test_install_toolchain_downloads_minimal_and_toolchain(
 def test_install_toolchain_locks_per_sdk_and_toolchain(
     tmp_path: Path, mock_download: MagicMock
 ) -> None:
-    framework_path = _make_framework(tmp_path)
+    zephyr_base = _make_zephyr_base(tmp_path)
 
     with patch("filelock.FileLock") as file_lock:
-        framework.install_toolchain(framework_path, TOOLCHAIN)
+        framework.install_toolchain(zephyr_base, TOOLCHAIN)
 
     lock_files = [Path(c.args[0]).name for c in file_lock.call_args_list]
     assert lock_files == [f"toolchain-zephyr-sdk-1.0.1-{TOOLCHAIN}.lock"]
@@ -790,17 +790,17 @@ def test_install_toolchain_raises_without_sdk_version(
 def test_install_toolchain_raises_on_an_empty_sdk_version(
     tmp_path: Path, zephyr_tools: Path
 ) -> None:
-    framework_path = _make_framework(tmp_path, sdk_version="\n")
+    zephyr_base = _make_zephyr_base(tmp_path, sdk_version="\n")
 
     with pytest.raises(EsphomeError, match="names no Zephyr SDK version"):
-        framework.install_toolchain(framework_path, TOOLCHAIN)
+        framework.install_toolchain(zephyr_base, TOOLCHAIN)
 
 
 def test_install_toolchain_removes_only_stale_partial_downloads(
     tmp_path: Path, mock_download: MagicMock
 ) -> None:
     """A fresh leftover may belong to a running build; a resumed part keeps its old meta."""
-    framework_path = _make_framework(tmp_path)
+    zephyr_base = _make_zephyr_base(tmp_path)
     toolchains = framework._get_toolchain_path("1.0.1", TOOLCHAIN).parent
     toolchains.mkdir(parents=True)
     stale = toolchains / "zephyr-sdk-0.17.4-arm-zephyr-eabi.toolchain.archive.part"
@@ -813,7 +813,7 @@ def test_install_toolchain_removes_only_stale_partial_downloads(
     for old in (stale, stale_meta, fresh_meta):
         os.utime(old, (two_days_ago, two_days_ago))
 
-    framework.install_toolchain(framework_path, TOOLCHAIN)
+    framework.install_toolchain(zephyr_base, TOOLCHAIN)
 
     assert not stale.exists()
     assert not stale_meta.exists()
