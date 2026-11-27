@@ -77,7 +77,7 @@ def test_infineon_wifi_is_opt_in(
         assert "mdns_zephyr.cpp" not in mdns.FILTER_SOURCE_FILES()
 
 
-def test_infineon_api_uses_zephyr_sockets(
+def test_infineon_api_uses_zephyr_sockets_without_mdns(
     generate_main: Callable[[str | Path], str],
 ) -> None:
     main_cpp = generate_main(INFINEON_CONFIG_DIR / "test-api.zephyr.yaml")
@@ -88,6 +88,8 @@ def test_infineon_api_uses_zephyr_sockets(
     prj_conf = zephyr_data()[KEY_PRJ_CONF][""]
     assert prj_conf["CONFIG_NET_SOCKETS"] == (True, True)
     assert prj_conf["CONFIG_NET_TCP"] == (True, True)
+    assert prj_conf["CONFIG_DNS_RESOLVER"] == (True, True)
+    assert "CONFIG_MDNS_RESPONDER" not in prj_conf
 
 
 def test_variant_from_another_family_is_rejected(
