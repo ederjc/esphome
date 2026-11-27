@@ -1,0 +1,40 @@
+esphome:
+  name: psoc6-dps368-smoke
+  on_boot:
+    priority: -100
+    then:
+      - logger.log:
+          level: INFO
+          tag: dps368_smoke
+          format: DPS368 smoke boot
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+
+logger:
+  hardware_uart: UART0
+
+# SCB0: onboard DPS368, SCL P0.2 and SDA P0.3.
+i2c:
+  id: scb0_bus
+  scan: false
+
+sensor:
+  - platform: dps310
+    i2c_id: scb0_bus
+    address: 0x77
+    update_interval: 2s
+    temperature:
+      name: DPS368 Temperature
+      on_value:
+        - lambda: ESP_LOGI("dps368_smoke", "DPS368 temperature=%.3f C", x);
+    pressure:
+      name: DPS368 Pressure
+      on_value:
+        - lambda: ESP_LOGI("dps368_smoke", "DPS368 pressure=%.3f hPa", x);
