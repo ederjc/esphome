@@ -436,8 +436,8 @@ def _install_workspace(
     patch_west_build_source_dir_relpath(framework)
 
 
-def _read_sdk_version(framework_path: Path) -> str:
-    sdk_version_file = framework_path / "zephyr" / "SDK_VERSION"
+def _read_sdk_version(zephyr_base: Path) -> str:
+    sdk_version_file = zephyr_base / "SDK_VERSION"
     try:
         sdk_version = sdk_version_file.read_text(encoding="utf-8").strip()
     except OSError as err:
@@ -449,9 +449,9 @@ def _read_sdk_version(framework_path: Path) -> str:
     return sdk_version
 
 
-def install_toolchain(framework_path: Path, toolchain: str) -> Path:
-    """Install the SDK named by the workspace's ``zephyr/SDK_VERSION``; returns its folder."""
-    sdk_version = _read_sdk_version(framework_path)
+def install_toolchain(zephyr_base: Path, toolchain: str) -> Path:
+    """Install the SDK named by the Zephyr checkout's ``SDK_VERSION``."""
+    sdk_version = _read_sdk_version(zephyr_base)
     sdk_path = _get_toolchain_path(sdk_version, toolchain)
     cutoff = time.time() - _STALE_DOWNLOAD_AGE
 
