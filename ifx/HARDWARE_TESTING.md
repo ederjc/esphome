@@ -57,6 +57,20 @@ consecutive boot counters. Run it from the repository root:
 The runner does not actuate the user button or observe the LED; verify those
 separately before marking the GPIO input test as passed.
 
+## BMI270 measurements
+
+Reuse the existing `bmi270` motion component with `aux_device: NONE` for the
+onboard IMU; BMM150 auxiliary support is not BMM350 support. Compile
+`tests/components/infineon/test-bmi270.zephyr.yaml`, reserve the kit and flash
+the credential-free factory image. Leave the board stationary. After its new
+boot marker, capture at least five coherent accelerometer/gyroscope vectors
+from the verbose motion log and five temperature publications. Require finite
+data, gravity magnitude between 0.85 and 1.15 g, each angular-rate axis within
+5 degrees per second of rest, and temperature between -40 and 85 degrees
+Celsius. These are static sanity checks, not calibrated accuracy, dynamic
+response or axis-orientation validation. Restore and verify the core image
+and overwrite any stale bench rows before releasing the kit.
+
 Link evidence from the PR: commit tested, board and revision, config or build
 command, relevant tool versions, test steps, expected and actual results, and
 sanitized logs or captures. List what was not tested. If no kit behavior could
