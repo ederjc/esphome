@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from esphome.components import logger, mdns, wifi
+from esphome.components import logger, mdns, socket, wifi
 from esphome.components.zephyr import zephyr_data
 from esphome.components.zephyr.const import KEY_OVERLAY, KEY_PRJ_CONF
 from esphome.config import read_config
@@ -75,6 +75,19 @@ def test_infineon_wifi_is_opt_in(
     if with_wifi:
         assert "wifi_component_zephyr.cpp" not in wifi.FILTER_SOURCE_FILES()
         assert "mdns_zephyr.cpp" not in mdns.FILTER_SOURCE_FILES()
+
+
+def test_infineon_api_uses_zephyr_sockets(
+    generate_main: Callable[[str | Path], str],
+) -> None:
+    main_cpp = generate_main(INFINEON_CONFIG_DIR / "test-api.zephyr.yaml")
+
+    assert "api::APIServer" in main_cpp
+    assert "-DUSE_ZEPHYR_VARIANT_FAMILY_INFINEON_PSOC6" in CORE.build_flags
+    assert "bsd_sockets_impl.cpp" not in socket.FILTER_SOURCE_FILES()
+    prj_conf = zephyr_data()[KEY_PRJ_CONF][""]
+    assert prj_conf["CONFIG_NET_SOCKETS"] == (True, True)
+    assert prj_conf["CONFIG_NET_TCP"] == (True, True)
 
 
 def test_variant_from_another_family_is_rejected(

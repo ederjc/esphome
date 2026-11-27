@@ -34,10 +34,12 @@ provides the SDHC0 pinmux and clock setup.
 
 Compile the [smoke fixture](../tests/components/infineon/test-wifi.zephyr.yaml)
 with `python -m esphome compile tests/components/infineon/test-wifi.zephyr.yaml`.
-It has no credentials and does not ask ESPHome to connect at boot. This is a build
-check, not a hardware test. Native API support is not part of this fixture:
-the Infineon platform still needs API/socket defaults and the manufacturer
-metadata used by the API.
+It has no credentials and does not ask ESPHome to connect at boot. The
+[native API fixture](../tests/components/infineon/test-api.zephyr.yaml)
+extends it with `api:` and uses the existing Zephyr BSD sockets backend.
+Compile it with `python -m esphome compile tests/components/infineon/test-api.zephyr.yaml`.
+These fixtures are for build checks, not hardware tests. The API fixture
+does not enable encryption; do not deploy it.
 
 ## CI
 
