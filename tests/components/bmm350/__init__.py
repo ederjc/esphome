@@ -9,5 +9,6 @@ def override_manifest(manifest: ComponentManifestOverride) -> None:
 
     async def to_code_testing(config: ConfigType) -> None:
         cg.add_define("USE_SENSOR")
+        cg.add_define("ESPHOME_ENTITY_SENSOR_COUNT", 0)
 
     manifest.to_code = to_code_testing
