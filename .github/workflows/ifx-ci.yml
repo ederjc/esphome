@@ -90,6 +90,8 @@ jobs:
       - name: Compile Infineon firmware
         if: steps.smoke.outputs.enabled == 'true'
         run: python -m esphome compile "$INFINEON_SMOKE_CONFIG"
+      - name: Compile onboard radar SPI identification
+        run: python -m esphome compile tests/components/infineon/test-radar-spi.zephyr.yaml
       - name: Save managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true' && steps.zephyr-cache.outputs.cache-hit != 'true' && github.event_name == 'push'
         uses: actions/cache/save@v6.1.0
