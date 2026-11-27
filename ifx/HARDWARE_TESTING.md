@@ -45,9 +45,9 @@ including on failure. Compiling without the device does not require the lock.
    internal primary and external QSPI secondary; record the actual layout.
 
 For the core platform fixture, the Windows bench runner reserves the kit locally,
-verifies the flash, and checks that two resets produce consecutive boot
-counters and sustained heartbeats without unexpected reboots. Run it from the
-repository root:
+verifies the flash, and checks the first boot after programming before
+resetting the board again. Both boots must emit sustained heartbeats and
+consecutive boot counters. Run it from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe -m esphome compile tests\components\infineon\test.zephyr.yaml

@@ -71,15 +71,14 @@ def _test(args: argparse.Namespace) -> None:
             check=True,
             timeout=120,
         )
-        boots = []
-        for _ in range(2):
-            console.reset_input_buffer()
-            subprocess.run(
-                [*command, "-c", "init; reset run; shutdown"],
-                check=True,
-                timeout=30,
-            )
-            boots.append(_read_boot(console))
+        boots = [_read_boot(console)]
+        console.reset_input_buffer()
+        subprocess.run(
+            [*command, "-c", "init; reset run; shutdown"],
+            check=True,
+            timeout=30,
+        )
+        boots.append(_read_boot(console))
     if boots[1] != boots[0] + 1:
         raise RuntimeError(f"Boot counter did not persist across reset: {boots}")
     print(f"PASS: stable boot and preferences persistence ({boots[0]} -> {boots[1]})")
