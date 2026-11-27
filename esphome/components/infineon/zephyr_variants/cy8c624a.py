@@ -230,5 +230,5 @@ def to_code(config: ConfigType) -> None:
             zephyr_add_overlay(_WIFI_OVERLAY)
             zephyr_add_prj_conf("CYW43439", True)
             zephyr_add_prj_conf("CYW43439_MURATA_1YN", True)
-            # WHD allocates from Zephyr's system heap, as on CY8CPROTO-062-4343W.
-            zephyr_add_prj_conf_min("HEAP_MEM_POOL_SIZE", 15000)
+            # CYW43439 startup allocations exceed the 15 KB used by the 4343W board.
+            zephyr_add_prj_conf_min("HEAP_MEM_POOL_SIZE", 32 * 1024)
