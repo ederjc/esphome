@@ -1,0 +1,82 @@
+esphome:
+  name: sl-bench
+  loop_interval: 16ms
+  on_boot:
+    priority: -100
+    then:
+      - lambda: ESP_LOGI("sl_bench", "BOOT sound_level aggregate-only bench");
+      - script.execute: sl_sequence
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: local
+      path: ../../../.pdm-workspace/zephyr
+
+logger:
+  level: INFO
+
+microphone:
+  - platform: zephyr_dmic
+    id: stereo_mic
+    device: pdm0
+    sample_rate: 15625
+    num_channels: 2
+    bits_per_sample: 16
+
+sensor:
+  - platform: sound_level
+    id: channel0_level
+    microphone:
+      microphone: stereo_mic
+      channels: [0]
+      gain_factor: 1
+    measurement_duration: 1000ms
+    passive: true
+    peak:
+      name: "Microphone channel 0 peak dBFS"
+      internal: true
+      on_value:
+        - lambda: ESP_LOGI("sl_bench", "slot0 peak_dBFS=%.2f", x);
+    rms:
+      name: "Microphone channel 0 RMS dBFS"
+      internal: true
+      on_value:
+        - lambda: ESP_LOGI("sl_bench", "slot0 RMS_dBFS=%.2f", x);
+  - platform: sound_level
+    id: channel1_level
+    microphone:
+      microphone: stereo_mic
+      channels: [1]
+      gain_factor: 1
+    measurement_duration: 1000ms
+    passive: true
+    peak:
+      name: "Microphone channel 1 peak dBFS"
+      internal: true
+      on_value:
+        - lambda: ESP_LOGI("sl_bench", "slot1 peak_dBFS=%.2f", x);
+    rms:
+      name: "Microphone channel 1 RMS dBFS"
+      internal: true
+      on_value:
+        - lambda: ESP_LOGI("sl_bench", "slot1 RMS_dBFS=%.2f", x);
+
+script:
+  - id: sl_sequence
+    mode: single
+    then:
+      - microphone.stop_capture: stereo_mic
+      - delay: 1s
+      - repeat:
+          count: 3
+          then:
+            - lambda: ESP_LOGI("sl_bench", "START run=%u", static_cast<unsigned>(iteration + 1));
+            - microphone.capture: stereo_mic
+            - delay: 10s
+            - lambda: ESP_LOGI("sl_bench", "STOP run=%u", static_cast<unsigned>(iteration + 1));
+            - microphone.stop_capture: stereo_mic
+            - delay: 1s
+      - lambda: ESP_LOGI("sl_bench", "COMPLETE runs=3");

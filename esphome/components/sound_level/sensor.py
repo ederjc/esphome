@@ -3,14 +3,17 @@ import esphome.codegen as cg
 from esphome.components import microphone, sensor
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_DEVICE_CLASS,
     CONF_ID,
     CONF_MEASUREMENT_DURATION,
     CONF_MICROPHONE,
+    CONF_UNIT_OF_MEASUREMENT,
     DEVICE_CLASS_SOUND_PRESSURE,
     PLATFORM_ESP32,
     STATE_CLASS_MEASUREMENT,
     UNIT_DECIBEL,
 )
+from esphome.core import CORE
 from esphome.types import ConfigType
 
 AUTO_LOAD = ["audio"]
@@ -24,6 +27,26 @@ CONF_RMS = "rms"
 
 sound_level_ns = cg.esphome_ns.namespace("sound_level")
 SoundLevelComponent = sound_level_ns.class_("SoundLevelComponent", cg.Component)
+
+
+def _validate_platform(config: ConfigType) -> ConfigType:
+    if CORE.using_toolchain_zephyr:
+        if len(config[CONF_MICROPHONE]["channels"]) != 1:
+            raise cv.Invalid(
+                "Zephyr sound_level requires one selected microphone channel. "
+                "Use separate passive sources with channels: [0] and [1] "
+                "for independent stereo levels.",
+                [CONF_MICROPHONE, "channels"],
+            )
+        for key in (CONF_PEAK, CONF_RMS):
+            if key in config:
+                config[key].setdefault(CONF_UNIT_OF_MEASUREMENT, "dBFS")
+        return config
+    for key in (CONF_PEAK, CONF_RMS):
+        if key in config:
+            config[key].setdefault(CONF_UNIT_OF_MEASUREMENT, UNIT_DECIBEL)
+            config[key].setdefault(CONF_DEVICE_CLASS, DEVICE_CLASS_SOUND_PRESSURE)
+    return cv.only_on([PLATFORM_ESP32])(config)
 
 
 CONFIG_SCHEMA = cv.All(
@@ -46,20 +69,16 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Required(CONF_PASSIVE): cv.boolean,
             cv.Optional(CONF_PEAK): sensor.sensor_schema(
-                unit_of_measurement=UNIT_DECIBEL,
                 accuracy_decimals=1,
-                device_class=DEVICE_CLASS_SOUND_PRESSURE,
                 state_class=STATE_CLASS_MEASUREMENT,
             ),
             cv.Optional(CONF_RMS): sensor.sensor_schema(
-                unit_of_measurement=UNIT_DECIBEL,
                 accuracy_decimals=1,
-                device_class=DEVICE_CLASS_SOUND_PRESSURE,
                 state_class=STATE_CLASS_MEASUREMENT,
             ),
         }
     ).extend(cv.COMPONENT_SCHEMA),
-    cv.only_on([PLATFORM_ESP32]),
+    _validate_platform,
 )
 
 FINAL_VALIDATE_SCHEMA = cv.Schema(

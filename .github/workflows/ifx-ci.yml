@@ -4,6 +4,7 @@ name: Infineon fork CI
 on:
   pull_request:
     branches: [ifx/dev, feat/psoc6-radar-spi]
+    branches: [ifx/dev, feat/psoc6-pdm]
   push:
     branches: [ifx/dev]
 
@@ -130,6 +131,8 @@ jobs:
             exit 1
           fi
           python -m esphome compile ifx/pdm-stereo-ci.yaml
+      - name: Compile the PSoC 6 relative sound-level fixture
+        run: python -m esphome compile ifx/sound-level-ci.yaml
       - name: Save managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true' && steps.zephyr-cache.outputs.cache-hit != 'true' && github.event_name == 'push'
         uses: actions/cache/save@v6.1.0
