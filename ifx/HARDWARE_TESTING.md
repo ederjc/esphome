@@ -57,6 +57,19 @@ consecutive boot counters. Run it from the repository root:
 The runner does not actuate the user button or observe the LED; verify those
 separately before marking the GPIO input test as passed.
 
+## DPS368 measurements
+
+The existing `dps310` component supports the onboard DPS368; do not duplicate
+the driver. Compile `tests/components/infineon/test-dps368.zephyr.yaml` and
+flash its credential-free factory image with the same reservation and recovery
+procedure. SCB0 uses P0.2/P0.3 and the sensor address is `0x77`; no jumper is
+required. Capture at least five temperature and five pressure publications
+from the SCB5 logger. Require finite values within the sensor's rated ranges
+(-40 to 85 degrees Celsius and 300 to 1200 hPa), with no setup or communication
+failure. These checks demonstrate live measurements, not calibrated accuracy.
+Record the observed ranges and restore and verify the known-good core image
+before releasing the kit.
+
 ## BMI270 measurements
 
 Reuse the existing `bmi270` motion component with `aux_device: NONE` for the
