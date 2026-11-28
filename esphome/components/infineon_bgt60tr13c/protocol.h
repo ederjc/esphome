@@ -167,9 +167,10 @@ class Protocol {
   }
 
   // Vendor xensiv_bgt60trxx_start_frame(true): read-modify-write MAIN.FRAME_START.
+  // Like the vendor, a latched GSR0 error does not block the start; FIFO reads still check it.
   Result start_frame() {
     uint32_t main;
-    auto result = this->read_register(REG_MAIN, main);
+    auto result = this->read_register_latched(REG_MAIN, main);
     if (result != Result::RESULT_OK)
       return result;
     return this->write_register(REG_MAIN, main | MAIN_FRAME_START);

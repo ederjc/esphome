@@ -283,6 +283,14 @@ static void test_acquisition_primitives() {
   assert(starter.start_frame() == Result::RESULT_OK);
   start.complete();
 
+  MockTransport latched_start;
+  latched_start.steps = {{{0, 0, 0, 0}, {0x71, 0, 0, 0}}, {{1, 0, 0, 1}, {0x71, 0, 0, 0}}};
+  Protocol restarter(latched_start);
+  // Vendor parity: a latched GSR0 error must not stop the frame start.
+  assert(restarter.start_frame() == Result::RESULT_OK);
+  assert(restarter.gsr() == 0x71);
+  latched_start.complete();
+
   MockTransport rejected;
   rejected.steps = {{{0x5D, 0, 0x0A, 0xBC}, {0x78, 0, 0, 0}}};
   Protocol writer(rejected);
