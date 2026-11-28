@@ -123,9 +123,9 @@ jobs:
       - name: Compile the PSoC 6 stereo PDM fixture
         shell: bash
         run: |
-          ref='refs/tags/ifx-psoc6-v4.5.0-pdm.1^{}'
+          ref='refs/tags/ifx-psoc6-v4.5.0-pdm.3^{}'
           resolved=$(git ls-remote --exit-code https://github.com/ederjc/zephyr.git "$ref")
-          if [[ "$resolved" != "12c2b1aa0bf8511ff5523e4e651ee3ed63466d06"$'\t'"$ref" ]]; then
+          if [[ "$resolved" != "df499e772715822b2d5bf6c4f45e8a1b66a221ae"$'\t'"$ref" ]]; then
             echo "::error::The PDMv1 Zephyr tag no longer points to the reviewed commit."
             exit 1
           fi

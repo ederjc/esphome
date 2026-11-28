@@ -1,7 +1,9 @@
 /*
+ * Copyright (c) 2026 Infineon Technologies AG
+ *
  * SPDX-License-Identifier: Apache-2.0
  *
- * CY8C624ABZI-S2D44 MXAUDIOSS v1, not the MXPDM v2 peripheral.
+ * PSOC 6 MXAUDIOSS v1 PDM-PCM, not the MXPDM v2 peripheral.
  */
 #define DT_DRV_COMPAT infineon_pdm_v1
 
@@ -32,6 +34,8 @@ struct pdm_v1_data {
 	size_t used;
 	size_t block_size;
 	uint16_t discard_words;
+	/* dmic_read() calls between their state snapshot and return. */
+	uint8_t readers;
 };
 
 /* Called with interrupts locked, or from this device's ISR. */
@@ -54,9 +58,25 @@ static void release_buffers(const struct device *dev)
 		data->active = NULL;
 	}
 	while (k_msgq_get(&data->queue, &buffer, K_NO_WAIT) == 0) {
-		k_mem_slab_free(data->slab, buffer);
+		/* NULL is a wakeup sentinel, not a slab block. */
+		if (buffer != NULL) {
+			k_mem_slab_free(data->slab, buffer);
+		}
 	}
 	data->used = 0;
+}
+
+/*
+ * Wake a reader blocked in pdm_v1_read() once capture has stopped. The NULL
+ * sentinel makes it return -EIO and is never handed to the caller. If the
+ * queue is full, no reader can be waiting on it. Sentinels left without a
+ * reader are purged by configure and START.
+ */
+static void wake_reader(struct pdm_v1_data *data)
+{
+	void *sentinel = NULL;
+
+	(void)k_msgq_put(&data->queue, &sentinel, K_NO_WAIT);
 }
 
 static void capture_error(const struct device *dev)
@@ -66,6 +86,7 @@ static void capture_error(const struct device *dev)
 	quiesce(dev);
 	data->state = DMIC_STATE_ERROR;
 	/* Keep queued and active slabs until STOP/RESET, never recycle a caller's slab. */
+	wake_reader(data);
 }
 
 static void pdm_v1_isr(const struct device *dev)
@@ -154,31 +175,38 @@ static int pdm_v1_configure(const struct device *dev, struct dmic_cfg *requested
 		return ret;
 	}
 	cy_stc_pdm_pcm_config_t pdl = {
-	    .clkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
-	    .mclkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
-	    .ckoDiv = 3, /* 8 MHz / (3 + 1) = 2 MHz, 50% duty */
-	    .ckoDelay = 3,
-	    .sincDecRate = 64, /* 2 MHz / (2 * 64) = 15625 stereo frames/s */
-	    .chanSelect = CY_PDM_PCM_OUT_STEREO,
-	    .chanSwapEnable = false,
-	    .highPassFilterGain = 11,
-	    .highPassDisable = false,
-	    .softMuteCycles = CY_PDM_PCM_SOFT_MUTE_CYCLES_96,
-	    .softMuteFineGain = 0,
-	    .softMuteEnable = false,
-	    .wordLen = CY_PDM_PCM_WLEN_16_BIT,
-	    .signExtension = true,
-	    .gainLeft = CY_PDM_PCM_BYPASS,
-	    .gainRight = CY_PDM_PCM_BYPASS,
-	    .rxFifoTriggerLevel = 63,
-	    .dmaTriggerEnable = false,
-	    .interruptMask = 0,
+		.clkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
+		.mclkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
+		.ckoDiv = 3, /* 8 MHz / (3 + 1) = 2 MHz, 50% duty */
+		.ckoDelay = 3,
+		.sincDecRate = 64, /* 2 MHz / (2 * 64) = 15625 stereo frames/s */
+		.chanSelect = CY_PDM_PCM_OUT_STEREO,
+		.chanSwapEnable = false,
+		.highPassFilterGain = 11,
+		.highPassDisable = false,
+		.softMuteCycles = CY_PDM_PCM_SOFT_MUTE_CYCLES_96,
+		.softMuteFineGain = 0,
+		.softMuteEnable = false,
+		.wordLen = CY_PDM_PCM_WLEN_16_BIT,
+		.signExtension = true,
+		.gainLeft = CY_PDM_PCM_BYPASS,
+		.gainRight = CY_PDM_PCM_BYPASS,
+		.rxFifoTriggerLevel = 63,
+		.dmaTriggerEnable = false,
+		.interruptMask = 0,
 	};
 	unsigned int key = irq_lock();
 
+	/* A reader in flight reports the block size it snapshotted; keep it valid. */
+	if (data->readers != 0) {
+		irq_unlock(key);
+		return -EBUSY;
+	}
 	quiesce(dev);
 	release_buffers(dev);
 	if (Cy_PDM_PCM_Init(config->base, &pdl) != CY_PDM_PCM_SUCCESS) {
+		data->slab = NULL;
+		data->block_size = 0;
 		data->state = DMIC_STATE_INITIALIZED;
 		irq_unlock(key);
 		return -EIO;
@@ -207,6 +235,7 @@ static int pdm_v1_trigger(const struct device *dev, enum dmic_trigger command)
 			ret = -EIO;
 			break;
 		}
+		release_buffers(dev); /* Purge stale wakeup sentinels. */
 		ret = k_mem_slab_alloc(data->slab, &data->active, K_NO_WAIT);
 		if (ret != 0) {
 			break;
@@ -217,8 +246,8 @@ static int pdm_v1_trigger(const struct device *dev, enum dmic_trigger command)
 		Cy_PDM_PCM_ClearInterrupt(config->base, CY_PDM_PCM_INTR_MASK);
 		data->state = DMIC_STATE_ACTIVE;
 		Cy_PDM_PCM_SetInterruptMask(config->base, CY_PDM_PCM_INTR_RX_TRIGGER |
-							      CY_PDM_PCM_INTR_RX_OVERFLOW |
-							      CY_PDM_PCM_INTR_RX_UNDERFLOW);
+								  CY_PDM_PCM_INTR_RX_OVERFLOW |
+								  CY_PDM_PCM_INTR_RX_UNDERFLOW);
 		Cy_PDM_PCM_Enable(config->base);
 		break;
 	case DMIC_TRIGGER_STOP:
@@ -230,6 +259,7 @@ static int pdm_v1_trigger(const struct device *dev, enum dmic_trigger command)
 			data->block_size = 0;
 		}
 		data->state = data->slab != NULL ? DMIC_STATE_CONFIGURED : DMIC_STATE_INITIALIZED;
+		wake_reader(data);
 		break;
 	default:
 		ret = -ENOTSUP;
@@ -249,22 +279,41 @@ static int pdm_v1_read(const struct device *dev, uint8_t stream, void **buffer, 
 	}
 	*buffer = NULL;
 	*size = 0;
-	if (timeout != 0) {
-		return -ENOTSUP;
-	}
 	unsigned int key = irq_lock();
+	enum dmic_state state = data->state;
+	size_t block_size = data->block_size;
 
-	if (data->state != DMIC_STATE_ACTIVE) {
-		irq_unlock(key);
-		return -EIO;
-	}
-	int ret = k_msgq_get(&data->queue, buffer, K_NO_WAIT);
-
-	if (ret == 0) {
-		*size = data->block_size;
+	if (state == DMIC_STATE_ACTIVE) {
+		data->readers++;
 	}
 	irq_unlock(key);
-	return ret;
+	if (state != DMIC_STATE_ACTIVE) {
+		return -EIO;
+	}
+
+	/* Wait without holding the IRQ lock so the ISR can complete blocks. */
+	void *block;
+	int ret = k_msgq_get(&data->queue, &block, SYS_TIMEOUT_MS(timeout));
+
+	key = irq_lock();
+	data->readers--;
+	irq_unlock(key);
+	if (ret != 0) {
+		return ret;
+	}
+	if (block == NULL) {
+		/* Woken by a capture error, STOP or RESET. */
+		return -EIO;
+	}
+	/*
+	 * Only configure() and RESET change block_size. configure() returns
+	 * -EBUSY while a reader is in flight, and RESET leaves a wakeup sentinel
+	 * that only configure() or START (after configure()) can purge, so a
+	 * dequeued block always matches the size snapshotted with the state.
+	 */
+	*buffer = block;
+	*size = block_size;
+	return 0;
 }
 
 static int pdm_v1_init(const struct device *dev)
@@ -281,9 +330,9 @@ static int pdm_v1_init(const struct device *dev)
 }
 
 static DEVICE_API(dmic, pdm_v1_api) = {
-    .configure = pdm_v1_configure,
-    .trigger = pdm_v1_trigger,
-    .read = pdm_v1_read,
+	.configure = pdm_v1_configure,
+	.trigger = pdm_v1_trigger,
+	.read = pdm_v1_read,
 };
 
 #define PDM_V1_DEFINE(inst)                                                                        \
@@ -297,9 +346,9 @@ static DEVICE_API(dmic, pdm_v1_api) = {
 	}                                                                                          \
 	static struct pdm_v1_data pdm_v1_data_##inst;                                              \
 	static const struct pdm_v1_config pdm_v1_config_##inst = {                                 \
-	    .base = (PDM_Type *)DT_INST_REG_ADDR(inst),                                            \
-	    .pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                       \
-	    .connect_irq = pdm_v1_irq_##inst,                                                      \
+		.base = (PDM_Type *)DT_INST_REG_ADDR(inst),                                        \
+		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
+		.connect_irq = pdm_v1_irq_##inst,                                                  \
 	};                                                                                         \
 	DEVICE_DT_INST_DEFINE(inst, pdm_v1_init, NULL, &pdm_v1_data_##inst, &pdm_v1_config_##inst, \
 			      POST_KERNEL, CONFIG_AUDIO_DMIC_INIT_PRIORITY, &pdm_v1_api);

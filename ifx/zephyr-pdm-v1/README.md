@@ -1,6 +1,8 @@
 # CY8CKIT-062S2-AI stereo PDM feasibility
 
-**The A1 stereo capture and restart smoke test passed.**
+**The A1 stereo capture and restart smoke test passed.** The pdm.2 driver was
+bench-verified on A1: the PDM stereo and sound-level smoke tests both PASSED.
+pdm.3 adds reader wakeups and is not yet bench-verified.
 This is a deliberately single-board downstream Zephyr driver plus a separate,
 API-based ESPHome `microphone: platform: zephyr_dmic` backend. Its supported
 contract is deliberately restricted to this synchronous PDMv1 driver and board,
@@ -37,9 +39,19 @@ STOP/RESET release queued and partial buffers, never a slab borrowed by the
 caller. RESET requires configuration again. FIFO/slab/queue errors stop capture
 and are reported by `dmic_read`; STOP followed by START recovers. PAUSE/RELEASE
 are explicitly unsupported.
-Read supports **timeout 0 only**; positive and forever timeouts return
-`-ENOTSUP`. State validation, nonblocking dequeue and returned block-size
-snapshot share one IRQ-locked transaction on this single-core Zephyr target.
+Read honours its timeout. The state and block size are snapshotted together
+under the IRQ lock and a non-ACTIVE stream returns `-EIO`; the queue wait then
+runs without the lock so the ISR can complete blocks. An empty queue returns
+`-ENOMSG` for timeout 0 and `-EAGAIN` when a positive timeout expires;
+`SYS_FOREVER_MS` waits indefinitely.
+A FIFO/slab/queue error, STOP or RESET wakes a blocked reader with a NULL
+sentinel in the completed-block queue; the reader returns `-EIO` with a NULL
+buffer and size 0, so the sentinel never reaches the caller. Unread sentinels
+are skipped when buffers are released and purged by configure and START.
+The returned size is the snapshot: only configure and RESET change the block
+size, configure returns `-EBUSY` while a read is in flight, and RESET wakes
+that read with `-EIO`. A failed PDL initialisation during configure drops the
+previous slab/block size and leaves the driver INITIALIZED.
 STOP/RESET/IRQ errors cannot free the caller-borrowed block.
 
 The ESPHome backend owns eight 640-byte slab blocks, drains at most eight blocks
@@ -69,9 +81,13 @@ unstaged, unverified work item; it is not enabled by this fixture.
 ## Deliverables and evidence
 
 - `psoc6-pdm-v1.patch`: apply to an **isolated** Zephyr checkout at
-  `d42a8e9e40735695cc3319c9c6b35cbe18f00108`. Contains driver, binding, Kconfig,
-  PDL source wiring and board clock/pinctrl/node changes. It changes no HAL
-  module source. The source copies beside this document support simulation.
+  `92adf83a1` (same tree as `d42a8e9e40735695cc3319c9c6b35cbe18f00108`). It is
+  `git diff 92adf83a1 df499e772` of tag `ifx-psoc6-v4.5.0-pdm.3` and contains
+  driver, binding, Kconfig, PDL source wiring (gated on
+  `CONFIG_USE_INFINEON_PDM_PCM`), the disabled PSOC 6 02 SoC PDM node and board
+  clock/pinctrl/`&pdm0` changes. It changes no HAL module source. The driver,
+  Kconfig and binding copies beside this document are byte-identical to the tag
+  and support simulation.
 - `esphome/components/zephyr_dmic/`: standard Zephyr microphone backend.
 - `ifx/pdm-stereo-bench.yaml` and `pdm_stereo_metrics.h`: credential-free fixture,
   no Wi-Fi/API/OTA, no audio transport, file, waveform, energy or recording.
@@ -82,18 +98,24 @@ unstaged, unverified work item; it is not enabled by this fixture.
   Concurrent START, incomplete/invalid runs and callback delivery while stopped
   latch failure; `COMPLETE` requires a full validated >=5 s window in each run.
 - `ifx/pdm-stereo-ci.yaml`: compiles the same fixture in fork CI, replacing
-  only the local Zephyr checkout with the PDMv1 source from
-  [ederjc/zephyr#2](https://github.com/ederjc/zephyr/pull/2). CI checks that the
-  non-release tag selects the exact reviewed Zephyr commit.
+  only the local Zephyr checkout with the PDMv1 source from tag
+  `ifx-psoc6-v4.5.0-pdm.3` ([ederjc/zephyr#2](https://github.com/ederjc/zephyr/pull/2)).
+  CI checks that the non-release tag selects the exact reviewed Zephyr commit
+  `df499e772715822b2d5bf6c4f45e8a1b66a221ae`.
 - Fifteen focused pytest cases passed, including deterministic fixture sequencing,
   duplicate ownership, alias
   refusal, polling-budget boundaries, unsupported formats, plain
   PCM refusing codecs/ESP-IDF resources, and preserved ESP32 codec setup.
-- Eleven QEMU ztests passed using the actual driver and ESPHome backend/AudioCapture
+- Fifteen QEMU ztests passed using the actual driver and ESPHome backend/AudioCapture
   publication path with fake registers and real
   Zephyr queues/slabs: bad clock/shape, allocation exhaustion, borrowed-slab
-  ownership, fresh stereo read after exhaustion/restart, nonblocking read/reset
-  metadata, callback STOP of a caller-borrowed block, duplicate runtime ownership,
+  ownership, fresh stereo read after exhaustion/restart, read timeouts
+  (`-ENOMSG`, `-EAGAIN`, `SYS_FOREVER_MS`) and reset metadata, failed PDL
+  initialisation dropping the previous configuration, `SYS_FOREVER_MS`
+  readers woken with `-EIO` by a capture error, STOP and RESET (never a
+  sentinel buffer), configure refused while a woken read is in flight, a
+  blocked reader receiving a real block with its snapshotted size,
+  callback STOP of a caller-borrowed block, duplicate runtime ownership,
   polling interval changes, completion gating/concurrent START rejection,
   full metrics windows/quiet gaps, channel selection
   and signed gain.
@@ -103,9 +125,15 @@ unstaged, unverified work item; it is not enabled by this fixture.
 - Arm SDK 1.0.1 / GCC 14.3 / C++20 compiled and linked the real board fixture.
   `.config` enables `CONFIG_AUDIO_DMIC_INFINEON_PDM_V1`, not the v2 driver.
   Outputs are in `.pdm-workspace/board-build/zephyr/zephyr.{elf,hex,bin}`.
-  Deterministic-sequencer build footprint: 89,080 bytes flash, 31,756 bytes RAM.
-  Both generated pinmux values and their actual controller phandles passed
-  compile-time assertions. Replacement HEX SHA-256:
+  With tag `ifx-psoc6-v4.5.0-pdm.3` the deterministic-sequencer build footprint
+  is 89,208 bytes flash, 31,756 bytes RAM. Both generated pinmux values and
+  their actual controller phandles passed compile-time assertions. pdm.3 bench
+  HEX SHA-256:
+  `99FA1CF745F530D546288398A333FACBF1D9E4F721B73B74481B2285A7C621D2`
+  (not yet run on hardware). The pdm.2 bench HEX
+  `32311A337FD31E195A89264A889D3854BDD0A942F1895481BE6ECDED2076B758`
+  passed the PDM stereo and sound-level smoke tests. The detailed hardware
+  evidence below is for the pdm.1 image
   `C866E758B0EB00CA99151B2CF5119E8F5B659BB2AE5648D77645242002398EC8`.
   The earlier `3D877457...` HEX is held: its independently scheduled interval
   could race boot/startup. Do not flash it.
@@ -154,6 +182,9 @@ approximately 34 seconds after boot; wait for explicit completion. Require:
 
 Reproduce with the preinstalled ESPHome Python and read-only cache:
 `ifx\zephyr-pdm-v1\tests\offline_build.py --cache <ifx-z> --tests` or `--bench`.
+It expects `.pdm-workspace\zephyr` to be an isolated checkout of
+`ifx-psoc6-v4.5.0-pdm.3` (for example a `git clone --shared --no-checkout` of a
+local Zephyr repository followed by `checkout df499e772`).
 The helper disables installers, confines scratch/user caches to this worktree,
 uses explicit read-only HAL modules, and checks both generated pinmux values.
 

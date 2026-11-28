@@ -35,6 +35,7 @@ static void before(void *fixture)
 	zassert_ok(pdm_v1_init(&device));
 	zassert_equal(data.state, DMIC_STATE_INITIALIZED);
 	fake_hf1 = 8000000;
+	fake_pdm_init_result = CY_PDM_PCM_SUCCESS;
 }
 
 static void inject_pairs(unsigned int frames, uint16_t left, uint16_t right)
@@ -141,18 +142,18 @@ ZTEST(pdm_v1, test_exhaustion_is_error_until_stop_and_restart)
 	zassert_equal(pdm_v1_trigger(&device, DMIC_TRIGGER_START), -EIO);
 }
 
-ZTEST(pdm_v1, test_nonblocking_read_and_borrowed_metadata_survive_reset)
+ZTEST(pdm_v1, test_read_timeouts_and_borrowed_metadata_survive_reset)
 {
 	configure_and_start();
-	inject_pairs(4, 13, 1013);
 	void *buffer;
 	size_t bytes;
 
-	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 10), -ENOTSUP);
+	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 0), -ENOMSG);
+	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 10), -EAGAIN);
 	zassert_is_null(buffer);
 	zassert_equal(bytes, 0);
-	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, SYS_FOREVER_MS), -ENOTSUP);
-	zassert_ok(pdm_v1_read(&device, 0, &buffer, &bytes, 0));
+	inject_pairs(4, 13, 1013);
+	zassert_ok(pdm_v1_read(&device, 0, &buffer, &bytes, SYS_FOREVER_MS));
 	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_RESET));
 	zassert_equal(bytes, 16);
 	zassert_equal(((uint16_t *)buffer)[0], 13);
@@ -163,6 +164,132 @@ ZTEST(pdm_v1, test_nonblocking_read_and_borrowed_metadata_survive_reset)
 	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 0), -EIO);
 	zassert_is_null(buffer);
 	zassert_equal(bytes, 0);
+}
+
+ZTEST(pdm_v1, test_failed_pdl_init_drops_previous_configuration)
+{
+	struct pcm_stream_cfg stream = {
+	    .pcm_rate = 15625,
+	    .pcm_width = 16,
+	    .block_size = 16,
+	    .mem_slab = &test_slab,
+	};
+	struct dmic_cfg cfg = request(&stream);
+
+	configure_and_start();
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_STOP));
+	zassert_equal(data.state, DMIC_STATE_CONFIGURED);
+	fake_pdm_init_result = CY_PDM_PCM_BAD_PARAM;
+	zassert_equal(pdm_v1_configure(&device, &cfg), -EIO);
+	zassert_equal(data.state, DMIC_STATE_INITIALIZED);
+	zassert_is_null(data.slab);
+	zassert_equal(data.block_size, 0);
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_STOP));
+	zassert_equal(data.state, DMIC_STATE_INITIALIZED);
+	zassert_equal(pdm_v1_trigger(&device, DMIC_TRIGGER_START), -EIO);
+	zassert_false(registers.enabled);
+	zassert_equal(k_mem_slab_num_used_get(&test_slab), 0);
+}
+
+/* The reader is lower priority than the cooperative ztest thread, so it only
+ * runs, and blocks in dmic_read(), while the test thread sleeps.
+ */
+K_THREAD_STACK_DEFINE(reader_stack, 1024);
+static struct k_thread reader_thread;
+static volatile int reader_ret;
+static void *reader_buffer;
+static size_t reader_bytes;
+
+static void reader_entry(void *p1, void *p2, void *p3)
+{
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+	reader_ret = pdm_v1_read(&device, 0, &reader_buffer, &reader_bytes, SYS_FOREVER_MS);
+}
+
+static void start_blocked_reader(void)
+{
+	reader_ret = 1;
+	reader_buffer = (void *)&reader_ret;
+	reader_bytes = 1;
+	k_thread_create(&reader_thread, reader_stack, K_THREAD_STACK_SIZEOF(reader_stack),
+			reader_entry, NULL, NULL, NULL, K_PRIO_PREEMPT(1), 0, K_NO_WAIT);
+	k_msleep(20);
+	zassert_equal(reader_ret, 1, "reader must still be blocked");
+	zassert_equal(data.readers, 1);
+}
+
+static int join_reader(void)
+{
+	zassert_ok(k_thread_join(&reader_thread, K_MSEC(1000)));
+	zassert_equal(data.readers, 0);
+	return reader_ret;
+}
+
+ZTEST(pdm_v1, test_capture_error_wakes_forever_reader_with_eio)
+{
+	configure_and_start();
+	start_blocked_reader();
+	registers.status = CY_PDM_PCM_INTR_RX_OVERFLOW;
+	pdm_v1_isr(&device);
+	zassert_equal(data.state, DMIC_STATE_ERROR);
+	zassert_equal(join_reader(), -EIO);
+	zassert_is_null(reader_buffer);
+	zassert_equal(reader_bytes, 0);
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_STOP));
+	zassert_equal(k_mem_slab_num_used_get(&test_slab), 0);
+	/* START purges the unread STOP sentinel; an empty queue is not an error. */
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_START));
+	void *buffer;
+	size_t bytes;
+
+	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 0), -ENOMSG);
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_STOP));
+}
+
+ZTEST(pdm_v1, test_stop_wakes_reader_and_blocks_reconfigure_until_it_returns)
+{
+	struct pcm_stream_cfg stream = {
+	    .pcm_rate = 15625,
+	    .pcm_width = 16,
+	    .block_size = 8,
+	    .mem_slab = &test_slab,
+	};
+	struct dmic_cfg cfg = request(&stream);
+
+	configure_and_start();
+	start_blocked_reader();
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_STOP));
+	/* The woken reader has not run yet; its 16-byte snapshot must stay valid. */
+	zassert_equal(pdm_v1_configure(&device, &cfg), -EBUSY);
+	zassert_equal(data.block_size, 16);
+	zassert_equal(join_reader(), -EIO);
+	zassert_is_null(reader_buffer);
+	zassert_equal(reader_bytes, 0);
+	zassert_equal(k_mem_slab_num_used_get(&test_slab), 0);
+	zassert_ok(pdm_v1_configure(&device, &cfg));
+	zassert_equal(data.block_size, 8);
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_RESET));
+}
+
+ZTEST(pdm_v1, test_forever_reader_gets_real_block_with_its_size_never_sentinel)
+{
+	configure_and_start();
+	start_blocked_reader();
+	inject_pairs(4, 21, 1021);
+	zassert_equal(join_reader(), 0);
+	zassert_not_null(reader_buffer);
+	zassert_equal(reader_bytes, 16);
+	const uint16_t expected[] = {21, 1021, 22, 1022, 23, 1023, 24, 1024};
+
+	zassert_mem_equal(reader_buffer, expected, sizeof(expected));
+	k_mem_slab_free(&test_slab, reader_buffer);
+	start_blocked_reader();
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_RESET));
+	zassert_equal(join_reader(), -EIO);
+	zassert_is_null(reader_buffer);
+	zassert_equal(k_mem_slab_num_used_get(&test_slab), 0);
 }
 
 const struct device *pdm_test_reset(void)

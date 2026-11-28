@@ -12,6 +12,9 @@
 #define CY_PDM_PCM_WLEN_16_BIT 0
 #define CY_PDM_PCM_BYPASS 8
 #define CY_PDM_PCM_SUCCESS 0
+#define CY_PDM_PCM_BAD_PARAM 1
+
+static int fake_pdm_init_result = CY_PDM_PCM_SUCCESS;
 
 typedef struct {
 	unsigned int clkDiv, mclkDiv, ckoDiv, ckoDelay, sincDecRate, chanSelect;
@@ -56,6 +59,9 @@ static inline uint32_t Cy_PDM_PCM_ReadFifo(PDM_Type *base) { return base->words[
 static inline void Cy_PDM_PCM_ClearFifo(PDM_Type *base) { base->count = base->position = 0; }
 static inline int Cy_PDM_PCM_Init(PDM_Type *base, const cy_stc_pdm_pcm_config_t *config)
 {
+	if (fake_pdm_init_result != CY_PDM_PCM_SUCCESS) {
+		return fake_pdm_init_result;
+	}
 	base->configured = *config;
 	return CY_PDM_PCM_SUCCESS;
 }
