@@ -120,18 +120,18 @@ def _continuous(**overrides: object) -> dict:
     )
 
 
-def test_validate_acquisition_accepts_continuous_half_fifo_frame() -> None:
+def test_validate_acquisition_accepts_continuous_frame_below_half_fifo() -> None:
     config = _validate_acquisition(
-        _continuous(**{CONF_NUM_SAMPLES_PER_CHIRP: 1024, CONF_NUM_CHIRPS_PER_FRAME: 8})
+        _continuous(**{CONF_NUM_SAMPLES_PER_CHIRP: 1024, CONF_NUM_CHIRPS_PER_FRAME: 7})
     )
-    assert config[CONF_FIFO_THRESHOLD] == 8192
+    assert config[CONF_FIFO_THRESHOLD] == 7168
 
 
-def test_validate_acquisition_rejects_continuous_frame_above_half_fifo() -> None:
-    with pytest.raises(cv.Invalid, match="exceeds half"):
+def test_validate_acquisition_rejects_continuous_half_fifo_frame() -> None:
+    with pytest.raises(cv.Invalid, match="smaller than half"):
         _validate_acquisition(
             _continuous(
-                **{CONF_NUM_SAMPLES_PER_CHIRP: 482, CONF_NUM_CHIRPS_PER_FRAME: 17}
+                **{CONF_NUM_SAMPLES_PER_CHIRP: 1024, CONF_NUM_CHIRPS_PER_FRAME: 8}
             )
         )
 

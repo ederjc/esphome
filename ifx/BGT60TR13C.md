@@ -40,8 +40,8 @@ first `{...}` is used; comments and `#define` lines are ignored) or a plain hex
 list. Each word must be a write command (`addr << 25 | 1 << 24 | data`) to an
 address below the FIFO (`0x60`). The geometry must match the list; frames must
 be an even sample count smaller than the 16384-sample FIFO, because FSTAT
-reports a full FIFO as an error. Continuous frames must fit in half the FIFO
-(at most 8192 samples), so the next frame can fill it while one is read. Sensors
+reports a full FIFO as an error. Continuous frames must be smaller than half the FIFO
+(fewer than 8192 samples), so a backlog of one whole frame never fills it. Sensors
 require a register list; the diagnostic mode publishes nothing.
 
 Sequence, mirroring the Apache driver's `xensiv_bgt60trxx_config()`/

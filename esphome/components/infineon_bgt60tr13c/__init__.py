@@ -153,9 +153,9 @@ def _validate_acquisition(config: ConfigType) -> ConfigType:
     mode = config.setdefault(CONF_ACQUISITION_MODE, "triggered")
     if mode == "continuous":
         # The next frame fills the FIFO while the current one is read.
-        if frame_samples > FIFO_SAMPLES // 2:
+        if frame_samples >= FIFO_SAMPLES // 2:
             raise cv.Invalid(
-                f"A continuous frame of {frame_samples} samples exceeds half the "
+                f"A continuous frame of {frame_samples} samples must be smaller than half the "
                 f"{FIFO_SAMPLES}-sample FIFO; use 'triggered' mode"
             )
         if CONF_TIMEOUT not in config:
