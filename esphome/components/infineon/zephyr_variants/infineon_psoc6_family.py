@@ -2,6 +2,7 @@
 
 import esphome.codegen as cg
 from esphome.components.zephyr import zephyr_add_prj_conf
+from esphome.components.zephyr.variants import mcuboot_or_none
 import esphome.config_validation as cv
 from esphome.types import ConfigType
 
@@ -21,7 +22,7 @@ def wifi_check_board(board: str) -> None:
 
 
 def bootloader(advanced: ConfigType) -> str:
-    return ""
+    return mcuboot_or_none(advanced)
 
 
 def to_code(config: ConfigType) -> None:

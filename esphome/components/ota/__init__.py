@@ -60,6 +60,7 @@ SWAP_METHOD_SCHEMA = {
     cv.SplitDefault(
         CONF_SWAP_METHOD,
         esp32_zephyr="offset",
+        infineon="offset",
         nrf="offset",
         nrf_52="move",
         nrf_54l15="move",
@@ -289,6 +290,7 @@ _filter_backend_source_files = filter_source_files_from_platform(
         "ota_backend_host.cpp": {PlatformFramework.HOST_NATIVE},
         "ota_backend_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,
             PlatformFramework.RENESAS_ZEPHYR,
