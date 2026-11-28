@@ -1,0 +1,63 @@
+esphome:
+  name: psoc6-bmm350
+  on_boot:
+    priority: -100
+    then:
+      - logger.log:
+          level: INFO
+          format: "BMM350 smoke boot"
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+
+logger:
+  hardware_uart: UART0
+
+i2c:
+  id: onboard_i2c
+  frequency: 100kHz
+  scan: false
+
+sensor:
+  - platform: bmm350
+    i2c_id: onboard_i2c
+    address: 0x15
+    update_interval: 1s
+    field_strength_x:
+      name: BMM350 Field X
+      on_value:
+        then:
+          - logger.log:
+              level: INFO
+              format: "BMM350 field_x=%.3f uT"
+              args: ["x"]
+    field_strength_y:
+      name: BMM350 Field Y
+      on_value:
+        then:
+          - logger.log:
+              level: INFO
+              format: "BMM350 field_y=%.3f uT"
+              args: ["x"]
+    field_strength_z:
+      name: BMM350 Field Z
+      on_value:
+        then:
+          - logger.log:
+              level: INFO
+              format: "BMM350 field_z=%.3f uT"
+              args: ["x"]
+    temperature:
+      name: BMM350 Temperature
+      on_value:
+        then:
+          - logger.log:
+              level: INFO
+              format: "BMM350 temperature=%.3f C"
+              args: ["x"]
