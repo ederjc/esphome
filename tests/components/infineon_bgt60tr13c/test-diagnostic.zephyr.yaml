@@ -1,0 +1,60 @@
+esphome:
+  name: psoc6-radar-diagnostic
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+    overlays:
+      app: |
+        #include <zephyr/dt-bindings/pinctrl/ifx_cat1-pinctrl.h>
+
+        &gpio_prt12 {
+          status = "okay";
+        };
+
+        &pinctrl {
+          radar_mosi: radar_mosi {
+            pinmux = <DT_CAT1_PINMUX(12, 0, HSIOM_SEL_ACT_8)>;
+            drive-push-pull;
+          };
+          radar_miso: radar_miso {
+            pinmux = <DT_CAT1_PINMUX(12, 1, HSIOM_SEL_ACT_8)>;
+            input-enable;
+          };
+          radar_clk: radar_clk {
+            pinmux = <DT_CAT1_PINMUX(12, 2, HSIOM_SEL_ACT_8)>;
+            drive-push-pull;
+          };
+        };
+
+        &scb6 {
+          compatible = "infineon,spi";
+          status = "okay";
+          pinctrl-0 = <&radar_mosi &radar_miso &radar_clk>;
+          pinctrl-names = "default";
+        };
+
+logger:
+  hardware_uart: UART0
+
+# Isolated board bench fixture; overlay is the verified SPI fixture's unchanged binding.
+spi:
+  id: radar_bus
+  interface: scb6
+  clk_pin: P12.2
+  miso_pin: P12.1
+  mosi_pin: P12.0
+
+infineon_bgt60tr13c:
+  id: radar
+  spi_id: radar_bus
+  cs_pin: P12.3
+  reset_pin: P11.1
+  irq_pin: P11.0
+  spi_mode: 0
+  data_rate: 1MHz

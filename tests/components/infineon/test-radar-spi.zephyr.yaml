@@ -1,0 +1,115 @@
+esphome:
+  name: psoc6-radar-spi-smoke
+  on_boot:
+    priority: -100
+    then:
+      - output.turn_off: radar_reset
+      - delay: 10ms
+      - output.turn_on: radar_reset
+      - delay: 10ms
+      - lambda: |-
+          if (!id(radar_spi).spi_is_ready()) {
+            ESP_LOGE("radar_spi_smoke", "RADAR SPI FAIL: device not ready");
+            return;
+          }
+          // Match xensiv_bgt60trxx_init(high_speed=false): SFCTL (0x06) = 0.
+          const uint8_t sfctl[] = {0x0D, 0x00, 0x00, 0x00};
+          id(radar_spi).enable();
+          id(radar_spi).write_array(sfctl, sizeof(sfctl));
+          id(radar_spi).disable();
+          id(radar_ready) = true;
+          ESP_LOGI("radar_spi_smoke", "RADAR SPI fixture boot");
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+    overlays:
+      app: |
+        #include <zephyr/dt-bindings/pinctrl/ifx_cat1-pinctrl.h>
+
+        &gpio_prt12 {
+          status = "okay";
+        };
+
+        &pinctrl {
+          radar_mosi: radar_mosi {
+            pinmux = <DT_CAT1_PINMUX(12, 0, HSIOM_SEL_ACT_8)>;
+            drive-push-pull;
+          };
+          radar_miso: radar_miso {
+            pinmux = <DT_CAT1_PINMUX(12, 1, HSIOM_SEL_ACT_8)>;
+            input-enable;
+          };
+          radar_clk: radar_clk {
+            pinmux = <DT_CAT1_PINMUX(12, 2, HSIOM_SEL_ACT_8)>;
+            drive-push-pull;
+          };
+        };
+
+        &scb6 {
+          compatible = "infineon,spi";
+          status = "okay";
+          pinctrl-0 = <&radar_mosi &radar_miso &radar_clk>;
+          pinctrl-names = "default";
+        };
+
+logger:
+  hardware_uart: UART0
+
+globals:
+  - id: radar_ready
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
+# Schematic 630-60699-01 rev03, sheets 8/11: SCB6 connects directly to U6.
+spi:
+  id: radar_bus
+  interface: scb6
+  clk_pin: P12.2
+  miso_pin: P12.1
+  mosi_pin: P12.0
+
+spi_device:
+  id: radar_spi
+  spi_id: radar_bus
+  cs_pin: P12.3
+  spi_mode: 0
+  data_rate: 1MHz
+
+output:
+  - platform: gpio
+    id: radar_reset
+    pin: P11.1
+
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          if (!id(radar_ready)) {
+            return;
+          }
+          if (!id(radar_spi).spi_is_ready()) {
+            ESP_LOGE("radar_spi_smoke", "RADAR SPI FAIL: device not ready");
+            return;
+          }
+          // BGT60TRxx register reads use address << 25, followed by 24 data bits.
+          // https://github.com/Infineon/sensor-xensiv-bgt60trxx
+          uint8_t data[] = {0x04, 0x00, 0x00, 0x00};
+          id(radar_spi).enable();
+          id(radar_spi).transfer_array(data, sizeof(data));
+          id(radar_spi).disable();
+          const uint32_t chip_id =
+              (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
+          if (chip_id != 0x000303) {
+            ESP_LOGE("radar_spi_smoke", "RADAR SPI FAIL: CHIP_ID 0x%06X GSR0 0x%02X",
+                     unsigned(chip_id), data[0]);
+            return;
+          }
+          ESP_LOGI("radar_spi_smoke", "RADAR SPI PASS: CHIP_ID 0x%06X GSR0 0x%02X",
+                   unsigned(chip_id), data[0]);

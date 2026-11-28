@@ -1,0 +1,14 @@
+sensor:
+  - platform: bmm350
+    id: bmm350_sensor
+    i2c_id: i2c_bus
+    address: 0x15
+    field_strength_x:
+      name: BMM350 Field X
+    field_strength_y:
+      name: BMM350 Field Y
+    field_strength_z:
+      name: BMM350 Field Z
+    temperature:
+      name: BMM350 Temperature
+    update_interval: 1s

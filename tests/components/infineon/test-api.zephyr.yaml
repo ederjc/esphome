@@ -1,0 +1,10 @@
+packages:
+  wifi: !include test-wifi.zephyr.yaml
+
+esphome:
+  name: psoc6-api-smoke
+
+api:
+
+mdns:
+  disabled: true
