@@ -91,6 +91,8 @@ bool BGT60TR13C::configure_() {
     return false;
   }
   // Mirrors xensiv_bgt60trxx_config(): plain writes in list order, SFCTL limit bits owned by the driver.
+  // GSR0 errors can stay latched after the SW reset, so writes and readbacks report but tolerate them.
+  uint8_t gsr_seen = 0;
   for (size_t i = 0; i < this->register_count_; i++) {
     const uint32_t word = this->registers_[i];
     const uint8_t address = config_word_address(word);
@@ -105,6 +107,7 @@ bool BGT60TR13C::configure_() {
     if (triggered && address == REG_CCR2)
       data = (data & ~CCR2_MAX_FRAME_CNT) | 1;
     result = this->protocol_.write_register(address, data);
+    gsr_seen |= this->protocol_.gsr();
     if (result != Result::RESULT_OK) {
       ESP_LOGE(TAG, "Register 0x%02X write failed", address);
       this->fail_(result);
@@ -120,7 +123,8 @@ bool BGT60TR13C::configure_() {
     if (triggered && address == REG_CCR2)
       expected = (expected & ~CCR2_MAX_FRAME_CNT) | 1;
     uint32_t actual;
-    result = this->protocol_.read_register(address, actual);
+    result = this->protocol_.read_register_latched(address, actual);
+    gsr_seen |= this->protocol_.gsr();
     if (result != Result::RESULT_OK) {
       this->fail_(result);
       return false;
@@ -132,13 +136,13 @@ bool BGT60TR13C::configure_() {
   }
   // Registers absent from the list still need the driver-owned settings.
   uint32_t sfctl, ccr2;
-  result = this->protocol_.read_register(REG_SFCTL, sfctl);
+  result = this->protocol_.read_register_latched(REG_SFCTL, sfctl);
   if (result == Result::RESULT_OK && sfctl != sfctl_with_limit(sfctl, limit_words))
-    result = this->protocol_.write_verified(REG_SFCTL, sfctl_with_limit(sfctl, limit_words));
+    result = this->protocol_.write_verified_latched(REG_SFCTL, sfctl_with_limit(sfctl, limit_words));
   if (result == Result::RESULT_OK && triggered) {
-    result = this->protocol_.read_register(REG_CCR2, ccr2);
+    result = this->protocol_.read_register_latched(REG_CCR2, ccr2);
     if (result == Result::RESULT_OK && (ccr2 & CCR2_MAX_FRAME_CNT) != 1)
-      result = this->protocol_.write_verified(REG_CCR2, (ccr2 & ~CCR2_MAX_FRAME_CNT) | 1);
+      result = this->protocol_.write_verified_latched(REG_CCR2, (ccr2 & ~CCR2_MAX_FRAME_CNT) | 1);
   }
   if (result != Result::RESULT_OK) {
     this->fail_(result);
@@ -146,6 +150,7 @@ bool BGT60TR13C::configure_() {
   }
   if (this->use_interrupt_)
     this->irq_pin_->attach_interrupt(&BGT60TR13C::irq_handler_, this, gpio::INTERRUPT_RISING_EDGE);
+  ESP_LOGI(TAG, "Configuration GSR0 bits seen: 0x%02X", gsr_seen);
   ESP_LOGI(TAG,
            "Configured: registers=%u readback_mismatches=%u mode=%s samples_per_chirp=%u chirps=%u rx=%u "
            "frame_samples=%u frame_words=%u fifo_limit_words=%u irq=%s",

@@ -117,6 +117,7 @@ class Protocol {
     return actual == value ? Result::RESULT_OK : Result::RESULT_READBACK_ERROR;
   }
 
+  // Vendor xensiv_bgt60trxx_set_reg() ignores GSR0; keep it in gsr() for diagnostics instead of failing.
   Result write_register(uint8_t address, uint32_t value) {
     if (address >= REG_FIFO || value > 0xFFFFFF)
       return Result::RESULT_INVALID_ARGUMENT;
@@ -124,7 +125,20 @@ class Protocol {
     if (!this->transaction_(packet.data(), packet.size()))
       return Result::RESULT_TRANSPORT_ERROR;
     this->gsr_ = packet[0];
-    return (this->gsr_ & 0x0D) == 0 ? Result::RESULT_OK : Result::RESULT_STATUS_ERROR;
+    return Result::RESULT_OK;
+  }
+
+  // Like xensiv_bgt60trxx_get_reg(): returns the value even while a GSR0 error is latched.
+  Result read_register_latched(uint8_t address, uint32_t &value) { return this->read_register_(address, value, true); }
+
+  Result write_verified_latched(uint8_t address, uint32_t value) {
+    auto result = this->write_register(address, value);
+    uint32_t actual;
+    if (result == Result::RESULT_OK)
+      result = this->read_register_latched(address, actual);
+    if (result != Result::RESULT_OK)
+      return result;
+    return actual == value ? Result::RESULT_OK : Result::RESULT_READBACK_ERROR;
   }
 
   // Vendor xensiv_bgt60trxx_soft_reset(): set MAIN reset bits, wait for self-clear, then settle 10 ms.

@@ -286,8 +286,23 @@ static void test_acquisition_primitives() {
   MockTransport rejected;
   rejected.steps = {{{0x5D, 0, 0x0A, 0xBC}, {0x78, 0, 0, 0}}};
   Protocol writer(rejected);
-  assert(writer.write_register(REG_CCR2, 0x000ABC) == Result::RESULT_STATUS_ERROR);
+  // Vendor parity: register writes report but do not fail on latched GSR0 errors.
+  assert(writer.write_register(REG_CCR2, 0x000ABC) == Result::RESULT_OK);
+  assert(writer.gsr() == 0x78);
   rejected.complete();
+
+  MockTransport latched;
+  latched.steps = {{{0x5D, 0, 0x0A, 0xBC}, {0x78, 0, 0, 0}}, {{0x5C, 0, 0, 0}, {0x78, 0, 0x0A, 0xBC}}};
+  Protocol verifier(latched);
+  assert(verifier.write_verified_latched(REG_CCR2, 0x000ABC) == Result::RESULT_OK);
+  assert(verifier.gsr() == 0x78);
+  latched.complete();
+
+  MockTransport mismatch;
+  mismatch.steps = {{{0x5D, 0, 0x0A, 0xBC}, {0x78, 0, 0, 0}}, {{0x5C, 0, 0, 0}, {0x78, 0, 0x0A, 0xBD}}};
+  Protocol mismatched(mismatch);
+  assert(mismatched.write_verified_latched(REG_CCR2, 0x000ABC) == Result::RESULT_READBACK_ERROR);
+  mismatch.complete();
 }
 
 static void test_frame_stats() {
