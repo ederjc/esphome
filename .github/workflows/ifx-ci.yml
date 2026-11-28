@@ -80,7 +80,7 @@ jobs:
           python -m pytest -q --no-cov "${tests[@]}"
       - name: Run BMM350 C++ behavior tests
         run: python script/cpp_unit_test.py bmm350
-      - name: Run portable radar protocol and SPI delegate tests
+      - name: Run portable radar protocol, acquisition and SPI delegate tests
         run: |
           cmake -S ifx/tests/bgt60tr13c -B build/ifx-radar-tests -DCMAKE_BUILD_TYPE=Debug
           cmake --build build/ifx-radar-tests --parallel 2
