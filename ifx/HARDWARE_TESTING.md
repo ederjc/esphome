@@ -121,3 +121,28 @@ command, relevant tool versions, test steps, expected and actual results, and
 sanitized logs or captures. List what was not tested. If no kit behavior could
 change, explain why hardware testing is not applicable instead of marking it
 passed.
+
+## Onboard radar SPI identification
+
+Compile `tests/components/infineon/test-radar-spi.zephyr.yaml`. The fixture uses
+the existing Zephyr SPI backend and `spi_device`, with a board-local SCB6
+overlay: MOSI P12.0, MISO P12.1, clock P12.2 and GPIO chip select P12.3.
+P11.1 pulses the active-low radar reset before the fresh-boot marker.
+Before reading the ID, the fixture writes SFCTL = 0 to select normal MISO
+timing, matching `xensiv_bgt60trxx_init(high_speed=false)` in the vendor driver.
+These connections are from schematic 630-60699-01 rev03, sheets 8/11; the
+CY8C624A package pin table assigns HSIOM 20 to all three SPI signals.
+
+Reserve the kit and program/verify while the target remains halted. Clear the
+serial input before a separate reset/run so earlier firmware cannot satisfy the
+capture. Require `RADAR SPI fixture boot` and five subsequent
+`RADAR SPI PASS: CHIP_ID 0x000303` publications, with no SPI setup/transfer
+failure. Record GSR0 as well. The 24-bit CHIP_ID contains digital ID 3 and RF ID
+3, as specified by the open-source Infineon BGT60TRxx driver. A communication
+failure or a missing boot marker is a failed test, not a successful zero reading.
+Finally overwrite any stale application tail and restore/verify the known-good
+core, including three fresh heartbeats, without erasing settings.
+
+This fixture only proves a live hardware SPI path and radar identity. It does
+not start chirps, read the FIFO/IRQ, or provide presence/distance entities.
+Those require separate radar acquisition and open-source processing work.

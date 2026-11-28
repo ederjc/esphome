@@ -21,6 +21,7 @@ from esphome.components.ota import reject_swap_method_off_zephyr
 from esphome.components.silabs.zephyr_variants.silabs_family import (
     uart_group_roles as _silabs_uart_group_roles,
 )
+from esphome.components.spi import FILTER_SOURCE_FILES as SPI_FILTER_SOURCE_FILES
 from esphome.components.stm32 import zephyr_variants as stm32_variants
 from esphome.components.zephyr import (
     _MODULE_SCHEMA,
@@ -96,6 +97,7 @@ from esphome.const import (
     KEY_TARGET_FRAMEWORK,
     KEY_TARGET_PLATFORM,
     PLATFORM_ESP32,
+    PLATFORM_INFINEON,
     PLATFORM_NRF,
     PLATFORM_STM32,
     TYPE_GIT,
@@ -1241,6 +1243,16 @@ def test_zephyr_setup_uart_pinctrl_rpi_pico_partial_override_preserves_other_sig
 # ---------------------------------------------------------------------------
 # zephyr_setup_spi_pinctrl
 # ---------------------------------------------------------------------------
+
+
+def test_infineon_hardware_spi_keeps_the_zephyr_backend() -> None:
+    CORE.data[KEY_CORE] = {
+        KEY_TARGET_PLATFORM: PLATFORM_INFINEON,
+        KEY_TARGET_FRAMEWORK: "zephyr",
+    }
+    excluded = SPI_FILTER_SOURCE_FILES()
+    assert "spi_zephyr.cpp" not in excluded
+    assert {"spi_arduino.cpp", "spi_esp_idf.cpp"} <= set(excluded)
 
 
 def test_zephyr_setup_spi_pinctrl_fixed_family_only_enables_bus() -> None:
