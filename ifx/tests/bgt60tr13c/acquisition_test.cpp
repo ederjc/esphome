@@ -269,6 +269,23 @@ static void test_back_to_back_continuous_frames() {
   assert(f.host.discards == std::vector<std::string>{"timeout"} && f.chip.starts == 2);
 }
 
+static void test_continuous_timeout_runs_from_detection() {
+  // A slow read must not extend the next frame's deadline: it runs from detection, not completion.
+  Fixture f(AcquisitionMode::CONTINUOUS, 500, 1500);
+  f.chip.ms_per_burst = 200;
+  assert(f.acquisition.start() == Result::RESULT_OK);
+  f.run_until(90);
+  f.chip.fill = FRAME_WORDS;
+  f.acquisition.notify_irq();
+  f.run_until(100);
+  f.run_until(1000);
+  assert(f.acquisition.frames() == 1 && f.host.read_ms.size() == 1 && f.host.read_ms[0] >= 200);
+  f.run_until(1590);
+  assert(f.host.discards.empty());
+  f.run_until(1700);
+  assert(f.host.discards == std::vector<std::string>{"timeout"});
+}
+
 static void test_restart_failure_escalation() {
   // A latched GSR0 error must not stop a restart (vendor parity).
   Fixture latched(AcquisitionMode::TRIGGERED);
@@ -322,6 +339,7 @@ int main() {
   test_timeout_discards();
   test_fifo_read_error_discards_and_restarts();
   test_back_to_back_continuous_frames();
+  test_continuous_timeout_runs_from_detection();
   test_restart_failure_escalation();
   puts("BGT60TR13C acquisition state machine tests passed (register-model fake chip; NOT board evidence)");
 }
