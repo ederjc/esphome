@@ -34,6 +34,7 @@ from esphome.components.zephyr import (
     zephyr_data,
     zephyr_setup_i2c_pinctrl,
 )
+from esphome.components.zephyr.board_revision import parse_board_string
 from esphome.components.zephyr.const import KEY_BOARD
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
@@ -53,6 +54,7 @@ from esphome.const import (
     PLATFORM_ESP32,
     PLATFORM_ESP8266,
     PLATFORM_HOST,
+    PLATFORM_INFINEON,
     PLATFORM_NRF52,
     PLATFORM_RP2,
     PlatformFramework,
@@ -174,6 +176,18 @@ def _validate_pins_in_bus_domain(config: ConfigType) -> None:
 
 
 def validate_config(config: ConfigType) -> ConfigType:
+    if (
+        CORE.target_platform == PLATFORM_INFINEON
+        and CORE.using_toolchain_zephyr
+        and config[CONF_SCAN]
+        and config.get(CONF_DTS_NODE_OVERRIDE, "scb0") in ("scb0", "i2c0")
+        and parse_board_string(zephyr_data()[KEY_BOARD]).name == "cy8ckit_062s2_ai"
+    ):
+        LOGGER.warning(
+            "I2C scan on CY8CKIT-062S2-AI SCB0 can report no devices because the "
+            "Zephyr CAT1 HAL does not support address-only probes. Set scan: false "
+            "when using this driver."
+        )
     if CORE.is_libretiny:
         if int(config[CONF_FREQUENCY]) < 1:
             raise cv.Invalid("The frequency must be at least 1Hz", [CONF_FREQUENCY])
@@ -263,6 +277,7 @@ CONFIG_SCHEMA = cv.All(
                 nrf52="100kHz",
                 host="50kHz",
                 esp32_zephyr="100kHz",
+                infineon="100kHz",
                 nrf="100kHz",
                 nxp="100kHz",
                 renesas="100kHz",
@@ -596,6 +611,7 @@ _platform_filter = filter_source_files_from_platform(
         "i2c_bus_software.cpp": {PlatformFramework.BK72XX_ARDUINO},
         "i2c_bus_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF52_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,
