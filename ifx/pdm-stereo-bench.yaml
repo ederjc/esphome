@@ -1,0 +1,53 @@
+esphome:
+  name: psoc6-pdm-stereo-bench
+  loop_interval: 16ms
+  includes:
+    - pdm_stereo_metrics.h
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(stereo_mic).add_data_callback([](const esphome::microphone::AudioCapture &capture) {
+            pdm_bench_metrics().consume(capture);
+          });
+          pdm_bench_metrics().boot();
+      - script.execute: pdm_bench_sequence
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: local
+      path: ../.pdm-workspace/zephyr
+
+logger:
+
+microphone:
+  - platform: zephyr_dmic
+    id: stereo_mic
+    device: pdm0
+    sample_rate: 15625
+    num_channels: 2
+    bits_per_sample: 16
+
+script:
+  - id: pdm_bench_sequence
+    mode: single
+    then:
+      - microphone.stop_capture: stereo_mic
+      - lambda: pdm_bench_metrics().stopped();
+      - repeat:
+          count: 3
+          then:
+            - delay: 1s
+            - if:
+                condition:
+                  lambda: return pdm_bench_metrics().starting();
+                then:
+                  - microphone.capture: stereo_mic
+                  - delay: 10s
+                  - microphone.stop_capture: stereo_mic
+                  - lambda: pdm_bench_metrics().stopped();
+      - delay: 1s
+      - lambda: pdm_bench_metrics().complete();

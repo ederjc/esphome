@@ -10,7 +10,10 @@ Zephyr backend and mainline Zephyr (4.5.0 or later). The YAML platform is
 - Follow [hardware testing](HARDWARE_TESTING.md) to use the shared kit and collect evidence.
 - Follow [upstreaming](UPSTREAMING.md) to keep changes portable without opening upstream PRs.
 - See [BMM350 topology and verification](BMM350.md) for the portable magnetometer
-  component and credential-free board fixture (pending peer review and kit data).
+  component and credential-free board fixture.
+
+- See the [bounded stereo PDM implementation](zephyr-pdm-v1/README.md) for the
+  separate Zephyr PDMv1 patch, credential-free fixture and remaining bench gate.
 
 ## Milestones
 

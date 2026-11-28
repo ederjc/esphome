@@ -1,0 +1,11 @@
+---
+packages:
+  stereo: !include pdm-stereo-bench.yaml
+
+infineon:
+  framework:
+    source:
+      type: git
+      path: !remove
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-pdm.1

@@ -2,19 +2,25 @@
 
 #include <array>
 
+#ifdef USE_ZEPHYR
+#include "esphome/components/audio/pcm_utils.h"
+#else
 #include <gain.h>         // esp-audio-libs
 #include <pcm_convert.h>  // esp-audio-libs
+#endif
 
 namespace esphome::microphone {
 
 // Builds the exact LinearGain for an integer factor without the float dB conversion: the factor is
 // mantissa / 2^31 * 2^exponent, with the exponent set to the factor's bit width.
+#ifndef USE_ZEPHYR
 static esp_audio_libs::gain::LinearGain factor_to_linear_gain(uint32_t factor) {
   esp_audio_libs::gain::LinearGain gain;
   gain.exponent = 32 - __builtin_clz(factor);
   gain.mantissa_q31 = static_cast<int32_t>(factor << (31 - gain.exponent));
   return gain;
 }
+#endif
 
 audio::AudioStreamInfo MicrophoneSource::get_audio_stream_info() {
   return audio::AudioStreamInfo(this->bits_per_sample_, this->channels_.count(),
@@ -53,10 +59,16 @@ void MicrophoneSource::process_audio_(std::span<const uint8_t> data, const audio
   filtered_data.resize(static_cast<size_t>(total_frames) * target_bytes_per_sample * target_channels);
 
   // Applies the gain at full precision before narrowing; samples saturate at full scale, and narrowing rounds
+#ifdef USE_ZEPHYR
+  audio::copy_pcm_frames_with_gain(data.data(), filtered_data.data(), source_info.samples_to_bytes(1),
+                                  source_info.get_channels(), target_bytes_per_sample, channel_map.data(),
+                                  target_channels, this->gain_factor_, total_frames);
+#else
   esp_audio_libs::pcm_convert::copy_frames_with_gain(data.data(), filtered_data.data(), source_info.samples_to_bytes(1),
                                                      source_info.get_channels(), target_bytes_per_sample,
                                                      channel_map.data(), target_channels,
                                                      factor_to_linear_gain(this->gain_factor_), total_frames);
+#endif
 }
 
 }  // namespace esphome::microphone
