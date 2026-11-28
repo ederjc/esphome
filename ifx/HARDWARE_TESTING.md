@@ -146,3 +146,9 @@ core, including three fresh heartbeats, without erasing settings.
 This fixture only proves a live hardware SPI path and radar identity. It does
 not start chirps, read the FIFO/IRQ, or provide presence/distance entities.
 Those require separate radar acquisition and open-source processing work.
+
+The separate `infineon_bgt60tr13c` diagnostic/protocol increment and its
+credential-free fixture are described in [BGT60TR13C.md](BGT60TR13C.md).
+That increment remains blocked on a permissively licensed, 80 MHz-reference
+FMCW register profile; the diagnostic fixture does not prove FIFO acquisition
+or publish presence/distance.

@@ -3,7 +3,7 @@ name: Infineon fork CI
 
 on:
   pull_request:
-    branches: [ifx/dev]
+    branches: [ifx/dev, feat/psoc6-radar-spi]
   push:
     branches: [ifx/dev]
 
@@ -80,6 +80,11 @@ jobs:
           python -m pytest -q --no-cov "${tests[@]}"
       - name: Run BMM350 C++ behavior tests
         run: python script/cpp_unit_test.py bmm350
+      - name: Run portable radar protocol and SPI delegate tests
+        run: |
+          cmake -S ifx/tests/bgt60tr13c -B build/ifx-radar-tests -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/ifx-radar-tests --parallel 2
+          ctest --test-dir build/ifx-radar-tests --output-on-failure
       - name: Restore managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true'
         id: zephyr-cache
@@ -113,6 +118,8 @@ jobs:
         run: python -m esphome compile "$BMM350_SMOKE_CONFIG"
       - name: Compile onboard radar SPI identification
         run: python -m esphome compile tests/components/infineon/test-radar-spi.zephyr.yaml
+      - name: Compile the BGT60TR13C register diagnostic
+        run: python -m esphome compile tests/components/infineon_bgt60tr13c/test-diagnostic.zephyr.yaml
       - name: Save managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true' && steps.zephyr-cache.outputs.cache-hit != 'true' && github.event_name == 'push'
         uses: actions/cache/save@v6.1.0
