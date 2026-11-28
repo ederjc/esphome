@@ -1,7 +1,9 @@
+#include "esphome/components/infineon_bgt60tr13c/frame_stats.h"
 #include "esphome/components/infineon_bgt60tr13c/protocol.h"
 #include "vendor_oracle.h"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <vector>
 
@@ -247,10 +249,91 @@ static void test_readback_and_reset() {
   recover.complete();
 }
 
+static void test_acquisition_primitives() {
+  assert(config_word_address(0x5D012345U) == REG_CCR2);
+  assert(config_word_data(0x5D012345U) == 0x012345U);
+  assert(config_word_valid(0x0DA12FFFU));
+  assert(!config_word_valid(0x0CA12FFFU));  // Missing write flag.
+  assert(!config_word_valid(0xC1000000U));  // FIFO address is not configurable.
+  // SFCTL keeps unrelated bits, drops MISO_HS_READ and programs CREF = words - 1.
+  assert(sfctl_with_limit(0xA12FFFU, 1024) == 0xA023FFU);
+  assert(sfctl_with_limit(0x010000U, 1) == 0U);
+
+  MockTransport reset;
+  reset.steps = {{{0, 0, 0, 0}, {0x71, 0, 0, 1}},  // Latched GSR errors must not block a reset.
+                 {{1, 0, 0, 2}, {0x70, 0, 0, 0}},
+                 {{0, 0, 0, 0}, {0x70, 0, 0, 2}},
+                 {{0, 0, 0, 0}, {0x70, 0, 0, 0}}};
+  Protocol resetter(reset);
+  assert(resetter.soft_reset(MAIN_RESET_SW) == Result::RESULT_OK);
+  assert(reset.delays == 11);
+  reset.complete();
+
+  MockTransport none;
+  Protocol invalid(none);
+  assert(invalid.soft_reset(0) == Result::RESULT_INVALID_ARGUMENT);
+  assert(invalid.soft_reset(MAIN_FRAME_START) == Result::RESULT_INVALID_ARGUMENT);
+  assert(invalid.write_register(REG_FIFO, 0) == Result::RESULT_INVALID_ARGUMENT);
+  assert(invalid.write_register(REG_MAIN, 0x1000000) == Result::RESULT_INVALID_ARGUMENT);
+  none.complete();
+
+  MockTransport start;
+  start.steps = {{{0, 0, 0, 0}, {0x70, 0x12, 0x34, 0x50}}, {{1, 0x12, 0x34, 0x51}, {0x70, 0, 0, 0}}};
+  Protocol starter(start);
+  assert(starter.start_frame() == Result::RESULT_OK);
+  start.complete();
+
+  MockTransport rejected;
+  rejected.steps = {{{0x5D, 0, 0x0A, 0xBC}, {0x78, 0, 0, 0}}};
+  Protocol writer(rejected);
+  assert(writer.write_register(REG_CCR2, 0x000ABC) == Result::RESULT_STATUS_ERROR);
+  rejected.complete();
+}
+
+static void test_frame_stats() {
+  FrameStats stats;
+  assert(!stats.configure(4, 2, 0));
+  assert(!stats.configure(4, 2, MAX_RX_ANTENNAS + 1));
+  assert(stats.configure(4, 2, 2));
+  assert(stats.frame_samples() == 16);
+  // Two chirps of four samples, RX1/RX2 interleaved per sample.
+  const std::array<uint16_t, 16> frame{100, 10, 300, 10, 100, 10, 300, 10, 100, 10, 300, 10, 100, 10, 300, 10};
+  stats.begin();
+  stats.add(frame.data(), 5);  // Split delivery must equal one burst.
+  stats.add(frame.data() + 5, frame.size() - 5);
+  assert(stats.finish());
+  assert(stats.antenna(0).mean == 200.0f && stats.antenna(0).min == 100 && stats.antenna(0).max == 300);
+  assert(stats.antenna(0).peak == 100.0f);
+  assert(stats.antenna(1).mean == 10.0f && stats.antenna(1).peak == 0.0f);
+  // RX1 chirps have variance 100^2, RX2 has none: mean over 4 chirp blocks = 5000.
+  assert(std::fabs(stats.signal_rms() - std::sqrt(5000.0f)) < 1e-3f);
+  assert(std::isnan(stats.motion_rms()));
+
+  stats.begin();
+  stats.add(frame.data(), frame.size());
+  assert(stats.finish());
+  assert(stats.motion_rms() == 0.0f);
+
+  // Inverting the RX1 pattern changes its DC-free profile by 200 at each of four RX1 points.
+  std::array<uint16_t, 16> moved = frame;
+  for (size_t i = 0; i < moved.size(); i += 2)
+    moved[i] = moved[i] == 100 ? 300 : 100;
+  stats.begin();
+  stats.add(moved.data(), moved.size());
+  assert(stats.finish());
+  assert(std::fabs(stats.motion_rms() - std::sqrt(4 * 200.0f * 200.0f / 8)) < 1e-3f);
+
+  stats.begin();
+  stats.add(frame.data(), frame.size() - 2);
+  assert(!stats.finish());
+}
+
 int main() {
   test_packets_and_boot();
   test_packing_and_fifo();
   test_fifo_failures();
   test_readback_and_reset();
+  test_acquisition_primitives();
+  test_frame_stats();
   puts("BGT60TR13C portable protocol tests passed (mock transport, vendor-derived oracle; NOT board evidence)");
 }
