@@ -65,6 +65,8 @@ void BGT60TR13C::setup() {
   }
   if (this->registers_ == nullptr) {
     ESP_LOGW(TAG, "Acquisition disabled: no register list configured; no presence/distance output");
+    // Diagnostics run from update() only.
+    this->disable_loop();
     return;
   }
   if (!this->configure_())
@@ -158,7 +160,8 @@ bool BGT60TR13C::configure_() {
            unsigned(this->acquisition_.stats().frame_samples()),
            unsigned(this->acquisition_.stats().frame_samples() / 2), unsigned(limit_words),
            this->acquisition_.config().use_interrupt ? "interrupt" : "poll");
-  if (mismatches != 0)
+  this->readback_mismatch_ = mismatches != 0;
+  if (this->readback_mismatch_)
     this->status_set_warning(LOG_STR("Radar register readback mismatch"));
   return true;
 }
@@ -182,19 +185,28 @@ void BGT60TR13C::on_frame(uint32_t read_ms) {
       pos += size_t(written);
     }
     antennas[sizeof(antennas) - 1] = '\0';
-    ESP_LOGI(TAG,
+    ESP_LOGD(TAG,
              "Frame #%" PRIu32 " src=%s samples=%u fill=%" PRIu32 " read_ms=%" PRIu32
              "%s signal_rms=%.2f motion_rms=%.2f",
              frames, this->acquisition_.source(), unsigned(stats.frame_samples()), this->acquisition_.fill_words(),
              read_ms, antennas, stats.signal_rms(), stats.motion_rms());
   }
-  this->status_clear_warning();
+  // The configuration readback mismatch persists; only frame-level warnings and errors clear here.
+  if (!this->readback_mismatch_)
+    this->status_clear_warning();
+  this->status_clear_error();
 }
 
 void BGT60TR13C::on_discard(const char *reason, Result result) {
   ESP_LOGW(TAG, "Frame discarded: reason=%s result=%u fill=%" PRIu32 " discarded=%" PRIu32, reason, unsigned(result),
            this->acquisition_.fill_words(), this->acquisition_.discarded());
   this->status_set_warning(LOG_STR("Radar frame discarded"));
+}
+
+void BGT60TR13C::on_restart_failed(Result result, unsigned attempts) {
+  ESP_LOGW(TAG, "Frame restart failed: result=%u attempt=%u/%u; retrying on next update", unsigned(result), attempts,
+           MAX_RESTART_FAILURES);
+  this->status_set_error(LOG_STR("Radar frame restart failed"));
 }
 
 void BGT60TR13C::update() {
@@ -207,7 +219,7 @@ void BGT60TR13C::update() {
   const uint32_t now = millis();
   const uint32_t elapsed = now - this->last_update_ms_;
   const float rate = elapsed == 0 ? 0.0f : this->frames_since_update_ * 1000.0f / elapsed;
-  ESP_LOGI(TAG, "Acquisition summary: frames=%" PRIu32 " rate_hz=%.2f discarded=%" PRIu32 " irq_events=%" PRIu32,
+  ESP_LOGD(TAG, "Acquisition summary: frames=%" PRIu32 " rate_hz=%.2f discarded=%" PRIu32 " irq_events=%" PRIu32,
            this->acquisition_.frames(), rate, this->acquisition_.discarded(), this->acquisition_.irq_events());
 #ifdef USE_SENSOR
   if (this->frame_rate_sensor_ != nullptr)
@@ -264,7 +276,7 @@ void BGT60TR13C::dump_config() {
         unsigned(this->samples_per_chirp_), unsigned(this->chirps_per_frame_), unsigned(this->rx_antennas_),
         unsigned(this->fifo_threshold_),
         this->acquisition_.config().use_interrupt ? "interrupt + FSTAT watchdog" : "IRQ pin level + FSTAT poll",
-        this->acquisition_.config().frame_timeout_ms);
+        this->acquisition_.config().first_frame_timeout_ms);
     if (this->data_rate_ != spi::DATA_RATE_1MHZ)
       ESP_LOGW(TAG, "  SPI clock differs from the bench-verified 1 MHz");
   }

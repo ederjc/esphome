@@ -37,7 +37,11 @@ class BGT60TR13C : public PollingComponent,
   void set_fifo_threshold(uint16_t samples) { this->fifo_threshold_ = samples; }
   void set_acquisition_mode(AcquisitionMode mode) { this->acquisition_.config().mode = mode; }
   void set_use_interrupt(bool use_interrupt) { this->acquisition_.config().use_interrupt = use_interrupt; }
-  void set_frame_timeout(uint32_t timeout_ms) { this->acquisition_.config().frame_timeout_ms = timeout_ms; }
+  /// First frame after FRAME_START and, in continuous mode, each frame after the previous one.
+  void set_frame_timeout(uint32_t timeout_ms) {
+    this->acquisition_.config().first_frame_timeout_ms = timeout_ms;
+    this->acquisition_.config().next_frame_timeout_ms = timeout_ms;
+  }
   void set_frame_log_interval(uint32_t interval) { this->frame_log_interval_ = interval; }
 #ifdef USE_SENSOR
   void set_frame_rate_sensor(sensor::Sensor *sensor) { this->frame_rate_sensor_ = sensor; }
@@ -54,6 +58,7 @@ class BGT60TR13C : public PollingComponent,
   bool irq_level() override { return this->irq_pin_->digital_read(); }
   void on_frame(uint32_t read_ms) override;
   void on_discard(const char *reason, Result result) override;
+  void on_restart_failed(Result result, unsigned attempts) override;
   void on_failed(Result result) override { this->fail_(result); }
   void fail_(Result result);
   void diagnostic_update_();
@@ -74,6 +79,7 @@ class BGT60TR13C : public PollingComponent,
   uint16_t fifo_threshold_{0};
   uint8_t rx_antennas_{1};
   bool diagnostic_{true};
+  bool readback_mismatch_{false};
 #ifdef USE_SENSOR
   sensor::Sensor *frame_rate_sensor_{nullptr};
   sensor::Sensor *signal_rms_sensor_{nullptr};
