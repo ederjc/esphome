@@ -104,19 +104,6 @@ class Protocol {
 
   Result read_register(uint8_t address, uint32_t &value) { return this->read_register_(address, value, false); }
 
-  Result write_verified(uint8_t address, uint32_t value) {
-    if (address >= 0x60 || value > 0xFFFFFF)
-      return Result::RESULT_INVALID_ARGUMENT;
-    auto packet = register_packet(address, value, true);
-    if (!this->transaction_(packet.data(), packet.size()))
-      return Result::RESULT_TRANSPORT_ERROR;
-    uint32_t actual;
-    auto result = this->read_register(address, actual);
-    if (result != Result::RESULT_OK)
-      return result;
-    return actual == value ? Result::RESULT_OK : Result::RESULT_READBACK_ERROR;
-  }
-
   // Vendor xensiv_bgt60trxx_set_reg() ignores GSR0; keep it in gsr() for diagnostics instead of failing.
   Result write_register(uint8_t address, uint32_t value) {
     if (address >= REG_FIFO || value > 0xFFFFFF)
@@ -223,38 +210,12 @@ class Protocol {
     return Result::RESULT_OK;
   }
 
-  Result reset_fifo() {
-    uint32_t main;
-    // Latched FIFO faults must not prevent the control access that clears them.
-    auto result = this->read_register_(REG_MAIN, main, true);
-    if (result != Result::RESULT_OK)
-      return result;
-    auto packet = register_packet(REG_MAIN, main | 0x08, true);
-    if (!this->transaction_(packet.data(), packet.size()))
-      return Result::RESULT_TRANSPORT_ERROR;
-    for (unsigned i = 0; i < 10; i++) {
-      result = this->read_register_(REG_MAIN, main, true);
-      if (result != Result::RESULT_OK)
-        return result;
-      if ((main & 0x08) == 0) {
-        this->transport_.delay_ms(10);
-        uint32_t status;
-        result = this->fifo_status(status);
-        if (result != Result::RESULT_OK)
-          return result;
-        return (status & 0x3FFF) == 0 ? Result::RESULT_OK : Result::RESULT_READBACK_ERROR;
-      }
-      this->transport_.delay_ms(1);
-    }
-    return Result::RESULT_TIMEOUT;
-  }
-
   uint8_t gsr() const { return this->gsr_; }
 
  protected:
   Result read_register_(uint8_t address, uint32_t &value, bool allow_latched_error) {
     value = 0;
-    if (address >= 0x60)
+    if (address >= REG_FIFO)
       return Result::RESULT_INVALID_ARGUMENT;
     auto packet = register_packet(address);
     if (!this->transaction_(packet.data(), packet.size()))

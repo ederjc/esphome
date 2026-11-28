@@ -183,25 +183,25 @@ static void test_readback_and_reset() {
   MockTransport verified;
   verified.steps = {{{0x0D, 0, 0, 0}, {0x70, 0, 0, 0}}, {{0x0C, 0, 0, 0}, {0x70, 0, 0, 0}}};
   Protocol checked_write(verified);
-  assert(checked_write.write_verified(REG_SFCTL, 0) == Result::RESULT_OK);
+  assert(checked_write.write_verified_latched(REG_SFCTL, 0) == Result::RESULT_OK);
   verified.complete();
 
   MockTransport failed_write;
   failed_write.steps = {{{0x0D, 0, 0, 0}, {0, 0, 0, 0}, false}};
   Protocol lost_write(failed_write);
-  assert(lost_write.write_verified(REG_SFCTL, 0) == Result::RESULT_TRANSPORT_ERROR);
+  assert(lost_write.write_verified_latched(REG_SFCTL, 0) == Result::RESULT_TRANSPORT_ERROR);
   failed_write.complete();
 
   MockTransport failed_readback;
   failed_readback.steps = {{{0x0D, 0, 0, 0}, {0x70, 0, 0, 0}}, {{0x0C, 0, 0, 0}, {0, 0, 0, 0}, false}};
   Protocol lost_readback(failed_readback);
-  assert(lost_readback.write_verified(REG_SFCTL, 0) == Result::RESULT_TRANSPORT_ERROR);
+  assert(lost_readback.write_verified_latched(REG_SFCTL, 0) == Result::RESULT_TRANSPORT_ERROR);
   failed_readback.complete();
 
   MockTransport mismatch;
   mismatch.steps = {{{0x0D, 0, 0, 0}, {0x70, 0, 0, 0}}, {{0x0C, 0, 0, 0}, {0x70, 0, 0, 1}}};
   Protocol protocol(mismatch);
-  assert(protocol.write_verified(REG_SFCTL, 0) == Result::RESULT_READBACK_ERROR);
+  assert(protocol.write_verified_latched(REG_SFCTL, 0) == Result::RESULT_READBACK_ERROR);
   mismatch.complete();
 
   MockTransport failed_begin;
@@ -215,7 +215,7 @@ static void test_readback_and_reset() {
   for (unsigned i = 0; i < 10; i++)
     timeout.steps.push_back({{0, 0, 0, 0}, {0x70, 0, 0, 8}});
   Protocol stuck(timeout);
-  assert(stuck.reset_fifo() == Result::RESULT_TIMEOUT);
+  assert(stuck.soft_reset(MAIN_RESET_FIFO) == Result::RESULT_TIMEOUT);
   assert(timeout.delays == 10);
   timeout.complete();
 
@@ -235,14 +235,13 @@ static void test_readback_and_reset() {
                    {{0, 0, 0, 0}, {0x71, 0, 0, 0}},
                    {{1, 0, 0, 8}, {0x71, 0, 0, 0}},
                    {{0, 0, 0, 0}, {0x70, 0, 0, 0}},
-                   status_step(0x100000),
                    status_step(2),
                    {{0xFF, 0xC0, 0, 0}, {0x70, 0, 0, 0}},
                    {std::vector<uint8_t>(packed.size(), 0), packed},
                    status_step(0x100000)};
   Protocol recovery(recover);
   assert(recovery.read_fifo(samples.data(), samples.size()) == Result::RESULT_STATUS_ERROR);
-  assert(recovery.reset_fifo() == Result::RESULT_OK);
+  assert(recovery.soft_reset(MAIN_RESET_FIFO) == Result::RESULT_OK);
   assert(recovery.read_fifo(samples.data(), samples.size()) == Result::RESULT_OK);
   assert(samples == expected);
   assert(recover.delays == 10);
