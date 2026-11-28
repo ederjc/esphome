@@ -1,0 +1,30 @@
+---
+# Compile-only fixture for native ESPHome OTA through MCUboot on the
+# CY8CKIT-062S2-AI. Signed with MCUboot's public development key; never flash
+# a CI build to a device that should not accept arbitrary test images.
+esphome:
+  name: psoc6-ota-ci
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-ota.1
+    advanced:
+      bootloader: mcuboot
+
+logger:
+
+wifi:
+  ssid: ci-ssid
+  password: ci-password
+
+api:
+
+ota:
+  - platform: esphome
+
+safe_mode:

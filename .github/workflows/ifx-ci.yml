@@ -132,6 +132,17 @@ jobs:
           python -m esphome compile ifx/pdm-stereo-ci.yaml
       - name: Compile the PSoC 6 relative sound-level fixture
         run: python -m esphome compile ifx/sound-level-ci.yaml
+      - name: Compile the PSoC 6 MCUboot OTA fixture
+        shell: bash
+        run: |
+          ref='refs/tags/ifx-psoc6-v4.5.0-ota.1^{}'
+          resolved=$(git ls-remote --exit-code https://github.com/ederjc/zephyr.git "$ref")
+          if [[ "$resolved" != "8251a8ede5c1e51b24e4dff5f49f17042c7ac7af"$'\t'"$ref" ]]; then
+            echo "::error::The OTA Zephyr tag no longer points to the reviewed commit."
+            exit 1
+          fi
+          yamllint ifx/ota-ci.yaml
+          python -m esphome compile ifx/ota-ci.yaml
       - name: Save managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true' && steps.zephyr-cache.outputs.cache-hit != 'true' && github.event_name == 'push'
         uses: actions/cache/save@v6.1.0
