@@ -1,5 +1,5 @@
 diff --git a/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts b/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts
-index a05471cb7..3a4209bb9 100644
+index a05471cb768..3a4209bb916 100644
 --- a/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts
 +++ b/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts
 @@ -63,6 +63,31 @@
@@ -35,7 +35,7 @@ index a05471cb7..3a4209bb9 100644
   * &fll clock-frequency / &clk_hf0 clock-div / &clk_fast clock-div = 100MHz / 1 / 1 = 100MHz
   */
 diff --git a/drivers/audio/CMakeLists.txt b/drivers/audio/CMakeLists.txt
-index 073b72bdd..680c659b3 100644
+index 073b72bdd7b..680c659b32c 100644
 --- a/drivers/audio/CMakeLists.txt
 +++ b/drivers/audio/CMakeLists.txt
 @@ -21,6 +21,7 @@ zephyr_library_sources_ifdef(CONFIG_AUDIO_CODEC_WM8960 wm8960.c)
@@ -47,7 +47,7 @@ index 073b72bdd..680c659b3 100644
  zephyr_library_sources_ifdef(CONFIG_AUDIO_DMIC_MPXXDTYY dmic_mpxxdtyy-i2s.c)
  zephyr_library_sources_ifdef(CONFIG_AUDIO_DMIC_MPXXDTYY dmic_mpxxdtyy.c)
 diff --git a/drivers/audio/Kconfig b/drivers/audio/Kconfig
-index 933bb0fcd..750384a3a 100644
+index 933bb0fcd79..750384a3a5d 100644
 --- a/drivers/audio/Kconfig
 +++ b/drivers/audio/Kconfig
 @@ -125,6 +125,7 @@ source "subsys/logging/Kconfig.template.log_config"
@@ -60,7 +60,7 @@ index 933bb0fcd..750384a3a 100644
  source "drivers/audio/Kconfig.dmic_native_sim"
 diff --git a/drivers/audio/Kconfig.dmic_infineon_pdm_v1 b/drivers/audio/Kconfig.dmic_infineon_pdm_v1
 new file mode 100644
-index 000000000..69fb1f962
+index 00000000000..69fb1f962b1
 --- /dev/null
 +++ b/drivers/audio/Kconfig.dmic_infineon_pdm_v1
 @@ -0,0 +1,19 @@
@@ -85,10 +85,10 @@ index 000000000..69fb1f962
 +	range 2 16
 diff --git a/drivers/audio/dmic_infineon_pdm_v1.c b/drivers/audio/dmic_infineon_pdm_v1.c
 new file mode 100644
-index 000000000..60de39c6b
+index 00000000000..1fb45595313
 --- /dev/null
 +++ b/drivers/audio/dmic_infineon_pdm_v1.c
-@@ -0,0 +1,311 @@
+@@ -0,0 +1,356 @@
 +/*
 + * Copyright (c) 2026 Infineon Technologies AG
 + *
@@ -125,6 +125,8 @@ index 000000000..60de39c6b
 +	size_t used;
 +	size_t block_size;
 +	uint16_t discard_words;
++	/* dmic_read() calls between their state snapshot and return. */
++	uint8_t readers;
 +};
 +
 +/* Called with interrupts locked, or from this device's ISR. */
@@ -147,9 +149,25 @@ index 000000000..60de39c6b
 +		data->active = NULL;
 +	}
 +	while (k_msgq_get(&data->queue, &buffer, K_NO_WAIT) == 0) {
-+		k_mem_slab_free(data->slab, buffer);
++		/* NULL is a wakeup sentinel, not a slab block. */
++		if (buffer != NULL) {
++			k_mem_slab_free(data->slab, buffer);
++		}
 +	}
 +	data->used = 0;
++}
++
++/*
++ * Wake a reader blocked in pdm_v1_read() once capture has stopped. The NULL
++ * sentinel makes it return -EIO and is never handed to the caller. If the
++ * queue is full, no reader can be waiting on it. Sentinels left without a
++ * reader are purged by configure and START.
++ */
++static void wake_reader(struct pdm_v1_data *data)
++{
++	void *sentinel = NULL;
++
++	(void)k_msgq_put(&data->queue, &sentinel, K_NO_WAIT);
 +}
 +
 +static void capture_error(const struct device *dev)
@@ -159,6 +177,7 @@ index 000000000..60de39c6b
 +	quiesce(dev);
 +	data->state = DMIC_STATE_ERROR;
 +	/* Keep queued and active slabs until STOP/RESET, never recycle a caller's slab. */
++	wake_reader(data);
 +}
 +
 +static void pdm_v1_isr(const struct device *dev)
@@ -269,6 +288,11 @@ index 000000000..60de39c6b
 +	};
 +	unsigned int key = irq_lock();
 +
++	/* A reader in flight reports the block size it snapshotted; keep it valid. */
++	if (data->readers != 0) {
++		irq_unlock(key);
++		return -EBUSY;
++	}
 +	quiesce(dev);
 +	release_buffers(dev);
 +	if (Cy_PDM_PCM_Init(config->base, &pdl) != CY_PDM_PCM_SUCCESS) {
@@ -302,6 +326,7 @@ index 000000000..60de39c6b
 +			ret = -EIO;
 +			break;
 +		}
++		release_buffers(dev); /* Purge stale wakeup sentinels. */
 +		ret = k_mem_slab_alloc(data->slab, &data->active, K_NO_WAIT);
 +		if (ret != 0) {
 +			break;
@@ -325,6 +350,7 @@ index 000000000..60de39c6b
 +			data->block_size = 0;
 +		}
 +		data->state = data->slab != NULL ? DMIC_STATE_CONFIGURED : DMIC_STATE_INITIALIZED;
++		wake_reader(data);
 +		break;
 +	default:
 +		ret = -ENOTSUP;
@@ -346,20 +372,39 @@ index 000000000..60de39c6b
 +	*size = 0;
 +	unsigned int key = irq_lock();
 +	enum dmic_state state = data->state;
++	size_t block_size = data->block_size;
 +
++	if (state == DMIC_STATE_ACTIVE) {
++		data->readers++;
++	}
 +	irq_unlock(key);
 +	if (state != DMIC_STATE_ACTIVE) {
 +		return -EIO;
 +	}
 +
 +	/* Wait without holding the IRQ lock so the ISR can complete blocks. */
-+	int ret = k_msgq_get(&data->queue, buffer, SYS_TIMEOUT_MS(timeout));
++	void *block;
++	int ret = k_msgq_get(&data->queue, &block, SYS_TIMEOUT_MS(timeout));
 +
-+	if (ret == 0) {
-+		/* Configure/STOP purge the queue, so a dequeued block matches the current size. */
-+		*size = data->block_size;
++	key = irq_lock();
++	data->readers--;
++	irq_unlock(key);
++	if (ret != 0) {
++		return ret;
 +	}
-+	return ret;
++	if (block == NULL) {
++		/* Woken by a capture error, STOP or RESET. */
++		return -EIO;
++	}
++	/*
++	 * Only configure() and RESET change block_size. configure() returns
++	 * -EBUSY while a reader is in flight, and RESET leaves a wakeup sentinel
++	 * that only configure() or START (after configure()) can purge, so a
++	 * dequeued block always matches the size snapshotted with the state.
++	 */
++	*buffer = block;
++	*size = block_size;
++	return 0;
 +}
 +
 +static int pdm_v1_init(const struct device *dev)
@@ -401,7 +446,7 @@ index 000000000..60de39c6b
 +
 +DT_INST_FOREACH_STATUS_OKAY(PDM_V1_DEFINE)
 diff --git a/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi b/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi
-index 6f85411e2..22c421683 100644
+index 6f85411e230..22c421683c8 100644
 --- a/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi
 +++ b/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi
 @@ -349,6 +349,13 @@
@@ -420,7 +465,7 @@ index 6f85411e2..22c421683 100644
  			reg = <0x409d0000 0x10000>;
 diff --git a/dts/bindings/audio/infineon,pdm-v1.yaml b/dts/bindings/audio/infineon,pdm-v1.yaml
 new file mode 100644
-index 000000000..2a8eb6336
+index 00000000000..2a8eb63364f
 --- /dev/null
 +++ b/dts/bindings/audio/infineon,pdm-v1.yaml
 @@ -0,0 +1,22 @@
@@ -447,7 +492,7 @@ index 000000000..2a8eb6336
 +  pinctrl-names:
 +    required: true
 diff --git a/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt b/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt
-index c1c0f67b9..e69a02147 100644
+index c1c0f67b96d..e69a0214790 100644
 --- a/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt
 +++ b/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt
 @@ -49,6 +49,7 @@ zephyr_library_sources_ifdef(CONFIG_USE_INFINEON_TIMER    ${pdl_drv_dir}/source/

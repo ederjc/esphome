@@ -8,4 +8,4 @@ infineon:
       type: git
       path: !remove
       url: https://github.com/ederjc/zephyr.git
-      ref: ifx-psoc6-v4.5.0-pdm.2
+      ref: ifx-psoc6-v4.5.0-pdm.3
