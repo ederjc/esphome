@@ -1,8 +1,93 @@
-# BGT60TR13C: bounded diagnostic/protocol increment
+# BGT60TR13C: diagnostic and user-supplied-profile acquisition
 
 **The positive A1 register diagnostic passed; the physical register-transfer
-fault test is pending.** The fixture does not start RF chirps, read ADC frames,
-or publish presence and distance.
+fault test is pending.** Without a register list the component remains the
+diagnostic fixture below. With a user-supplied list it configures the chip,
+starts frames and reads the FIFO; **frame acquisition is compiled but not yet
+bench-verified**. It does not publish presence or distance.
+
+## Acquisition from a user-supplied register list
+
+Every published Infineon register table found (ModusToolbox radar examples,
+including `mtb-example-ml-imagimob-data-collection`
+`b4decd0d4154394bc8504d0c0a2a58d45127fd03` `source/radar_settings.h`, which
+targets this kit) is under the Cypress/Infineon EULA, which allows binary-only
+firmware distribution and requires source confidentiality. **No vendor table is
+in this repository.** Users supply configurator output themselves:
+
+```yaml
+infineon_bgt60tr13c:
+  # ... spi_id, cs_pin, reset_pin, irq_pin as for the diagnostic
+  registers_file: radar_settings.h   # or `registers:` with a list of words
+  num_samples_per_chirp: 128         # from the configurator output
+  num_chirps_per_frame: 16
+  num_rx_antennas: 1
+  fifo_threshold: 2048               # samples; default = one frame
+  acquisition_mode: triggered        # or continuous
+  use_interrupt: true                # false: IRQ pin level + FSTAT polling
+  timeout: 500ms
+  frame_log_interval: 1              # 0 disables per-frame lines
+sensor:
+  - platform: infineon_bgt60tr13c
+    frame_rate: {name: Radar frame rate}
+    signal_rms: {name: Radar signal RMS}
+    motion_rms: {name: Radar motion RMS}
+```
+
+`registers_file` is read at codegen time. It accepts a C initializer (only the
+first `{...}` is used; comments and `#define` lines are ignored) or a plain hex
+list. Each word must be a write command (`addr << 25 | 1 << 24 | data`) to an
+address below the FIFO (`0x60`). The geometry must match the list; frames must
+be an even sample count of at most 16384.
+
+Sequence, mirroring the Apache driver's `xensiv_bgt60trxx_config()`/
+`start_frame()`: hardware reset, CHIP_ID check, MAIN software reset, writes in
+list order (SFCTL FIFO limit `CREF = fifo_threshold/2 - 1` and MISO high-speed
+off are owned by the component), full readback (mismatches are warnings),
+FSM+FIFO reset, then `MAIN.FRAME_START`. Data-ready is the rising IRQ edge on
+the configured pin, with a 50 ms FSTAT watchdog. A frame is read only once FSTAT
+holds a whole frame, in ≤256-sample bursts with a 20 ms per-loop budget. Any
+error or timeout discards the whole frame and resets FSM+FIFO.
+
+- `triggered` (default) forces CCR2 `MAX_FRAME_CNT` (bits 11:0, datasheet
+  decode) to 1 and starts one frame per `update_interval`. This suits 1 MHz SPI:
+  a 2048-sample frame is 3072 payload bytes, about 25 ms on the wire.
+- `continuous` keeps the list's CCR2 and re-polls after each frame. It only
+  works when SPI throughput exceeds the profile's data rate; otherwise FIFO
+  overflow causes discards.
+
+Statistics (portable `frame_stats.h`) assume FIFO order chirp → sample → RX
+interleaved per sample: per-RX mean/min/max/peak (`max(max-mean, mean-min)`),
+`signal_rms` (RMS of each chirp's AC part, averaged over chirps and RX) and
+`motion_rms` (RMS change of the DC-free mean chirp versus the previous frame;
+`nan` on the first frame). These are raw-ADC LSB values, not calibrated
+presence or range.
+
+UART lines (tag `infineon_bgt60tr13c`) for bench parsing:
+
+```text
+BGT60TR13C acquisition boot v1
+Configured: registers=%u readback_mismatches=%u mode=%s samples_per_chirp=%u chirps=%u rx=%u frame_samples=%u frame_words=%u fifo_limit_words=%u irq=%s
+Register 0x%02X readback 0x%06X expected 0x%06X            (warning)
+Frame #%u src=%s samples=%u fill=%u read_ms=%u rx1_mean=%.1f rx1_min=%u rx1_max=%u rx1_peak=%.1f[ rx2_... rx3_...] signal_rms=%.2f motion_rms=%.2f
+Frame discarded: reason=%s result=%u fill=%u discarded=%u   (warning)
+Acquisition summary: frames=%u rate_hz=%.2f discarded=%u irq_events=%u
+Radar protocol failed: %u (...)                             (error)
+```
+
+`src` is `irq`, `pin` or `poll`; `fill` is FSTAT words at detection. Discard
+reasons are `fifo_status`, `timeout`, `fifo_read` and `sample_count`.
+
+`tests/components/infineon_bgt60tr13c/test-acquisition.zephyr.yaml` uses a
+**non-functional placeholder** list that only exercises validation and codegen.
+For bench builds, keep the licensed configurator output in a gitignored path
+(for example `tests/components/infineon_bgt60tr13c/.esphome/bench/`) and never
+commit or publish it.
+
+Open bench gates: CCR2 field decode and FSM behaviour after `MAX_FRAME_CNT=1`,
+IRQ edge/threshold on P11.0, measured burst throughput at 1 MHz, register
+readback of status-like fields, multi-RX ordering, and 80 MHz reference
+provenance.
 
 ## Confirmed protocol and licensing
 
