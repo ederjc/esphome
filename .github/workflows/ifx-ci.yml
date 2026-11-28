@@ -132,6 +132,8 @@ jobs:
           python -m esphome compile ifx/pdm-stereo-ci.yaml
       - name: Compile the PSoC 6 relative sound-level fixture
         run: python -m esphome compile ifx/sound-level-ci.yaml
+      - name: Compile the BGT60TR13C acquisition (placeholder register list)
+        run: python -m esphome compile tests/components/infineon_bgt60tr13c/test-acquisition.zephyr.yaml
       - name: Save managed Zephyr workspace and SDK
         if: steps.smoke.outputs.enabled == 'true' && steps.zephyr-cache.outputs.cache-hit != 'true' && github.event_name == 'push'
         uses: actions/cache/save@v6.1.0
