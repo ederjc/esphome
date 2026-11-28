@@ -21,6 +21,26 @@ Zephyr backend and mainline Zephyr (4.5.0 or later). The YAML platform is
   level, then BGT60TR13C radar over SPI with open-source presence and distance
   processing.
 
+## Wi-Fi build smoke test
+
+On `cy8ckit_062s2_ai`, adding `wifi:` selects Zephyr's AIROC driver for
+the onboard CYW43439 Murata Type 1YN. The SDIO overlay and the module's
+[firmware and regulatory blob](https://github.com/zephyrproject-rtos/hal_infineon/blob/eae914ed1ad0b54af28191d13da9b8e98fb5cb2b/zephyr/module.yml#L343-L387)
+are requested only for Wi-Fi builds. The
+[Infineon BSP](https://github.com/Infineon/TARGET_CY8CKIT-062S2-AI/blob/master/config/design.modus)
+defines the kit wiring; the
+[Zephyr PSoC 6 reference board](https://github.com/zephyrproject-rtos/zephyr/tree/v4.5.0/boards/infineon/cy8cproto_062_4343w)
+provides the SDHC0 pinmux and clock setup.
+
+Compile the [smoke fixture](../tests/components/infineon/test-wifi.zephyr.yaml)
+with `python -m esphome compile tests/components/infineon/test-wifi.zephyr.yaml`.
+It has no credentials and does not ask ESPHome to connect at boot. The
+[native API fixture](../tests/components/infineon/test-api.zephyr.yaml)
+extends it with `api:` and uses the existing Zephyr BSD sockets backend.
+Compile it with `python -m esphome compile tests/components/infineon/test-api.zephyr.yaml`.
+These fixtures are for build checks, not hardware tests. The API fixture
+does not enable encryption; do not deploy it.
+
 ## CI
 
 The [fork workflow](../.github/workflows/ifx-ci.yml) runs on PRs into `ifx/dev`
