@@ -13,8 +13,11 @@ class ZephyrSPIDelegate : public SPIDelegate {
   ~ZephyrSPIDelegate() override;
 
   void begin_transaction() override;
+  bool supports_transaction_status() const override { return true; }
+  bool transaction_failed() const override { return this->transaction_failed_; }
 
   uint8_t transfer(uint8_t data) override;
+  void write(uint16_t data, size_t num_bits) override;
   void transfer(uint8_t *ptr, size_t length) override;
   void transfer(const uint8_t *txbuf, uint8_t *rxbuf, size_t length) override;
   void write_array(const uint8_t *ptr, size_t length) override;
@@ -34,6 +37,7 @@ class ZephyrSPIDelegate : public SPIDelegate {
                                              const uint8_t *data, size_t length, uint8_t bus_width);
 
   SPIComponent *bus_;
+  bool transaction_failed_{false};
   // CS is driven by ESPHome via SPIDelegate::cs_pin_; cfg_.cs stays unset so
   // the Zephyr driver never touches a devicetree cs-gpios pin itself.
   spi_config cfg_{};

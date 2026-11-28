@@ -812,6 +812,7 @@ CONFIG_SCHEMA = cv.All(
                 rtl87xx="none",
                 ln882x="none",
                 esp32_zephyr="light",
+                infineon="none",
                 nrf="light",
                 nxp="light",
                 renesas="light",
@@ -1158,6 +1159,8 @@ async def to_code(config):
         if blob_spec := variant.transport_blobs.get("wifi"):
             zephyr_add_blobs(*blob_spec)
         zephyr_add_prj_conf("NET_DHCPV4", True)
+        # The Wi-Fi backend uses unicast DNS independently of mDNS discovery.
+        zephyr_add_prj_conf("DNS_RESOLVER", True)
         if config[CONF_LEASE_CACHE][CONF_ENABLED]:
             zephyr_add_prj_conf("NET_DHCPV4_INIT_REBOOT", True)
         # The driver's own DHCP start overrides manual_ip and, on ESP32, holds
@@ -1491,6 +1494,7 @@ FILTER_SOURCE_FILES = filter_source_files_from_platform(
         "wifi_component_pico_w.cpp": {PlatformFramework.RP2_ARDUINO},
         "wifi_component_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,
             PlatformFramework.RENESAS_ZEPHYR,

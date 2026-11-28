@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from esphome.components import logger
+from esphome.components import logger, mdns, socket, wifi
 from esphome.components.zephyr import zephyr_data
 from esphome.components.zephyr.const import KEY_OVERLAY, KEY_PRJ_CONF
 from esphome.config import read_config
@@ -26,6 +26,7 @@ from esphome.const import (
 from esphome.core import CORE
 
 CONFIG_DIR = Path(__file__).parent / "config"
+INFINEON_CONFIG_DIR = Path(__file__).parents[2] / "components" / "infineon"
 
 
 @pytest.mark.parametrize(
@@ -51,6 +52,44 @@ def test_platform_generates_zephyr_build(
     assert "logger::Logger" in main_cpp
     assert zephyr_data()[KEY_PRJ_CONF][""]["CONFIG_TEST_OPTION"] == (True, True)
     assert "logger_zephyr.cpp" not in logger.FILTER_SOURCE_FILES()
+
+
+@pytest.mark.parametrize(
+    ("fixture", "with_wifi"),
+    [("test.zephyr.yaml", False), ("test-wifi.zephyr.yaml", True)],
+)
+def test_infineon_wifi_is_opt_in(
+    generate_main: Callable[[str | Path], str], fixture: str, with_wifi: bool
+) -> None:
+    main_cpp = generate_main(INFINEON_CONFIG_DIR / fixture)
+    data = zephyr_data()
+    overlay = data[KEY_OVERLAY][""]
+    prj_conf = data[KEY_PRJ_CONF][""]
+
+    assert ("wifi::WiFiComponent" in main_cpp) is with_wifi
+    assert ('compatible = "infineon,airoc-wifi";' in overlay) is with_wifi
+    assert ("&sdhc0 {" in overlay) is with_wifi
+    assert ("CONFIG_WIFI_AIROC" in prj_conf) is with_wifi
+    assert ("CONFIG_CYW43439_MURATA_1YN" in prj_conf) is with_wifi
+    assert bool(data["blobs"]) is with_wifi
+    if with_wifi:
+        assert "wifi_component_zephyr.cpp" not in wifi.FILTER_SOURCE_FILES()
+        assert "mdns_zephyr.cpp" not in mdns.FILTER_SOURCE_FILES()
+
+
+def test_infineon_api_uses_zephyr_sockets_without_mdns(
+    generate_main: Callable[[str | Path], str],
+) -> None:
+    main_cpp = generate_main(INFINEON_CONFIG_DIR / "test-api.zephyr.yaml")
+
+    assert "api::APIServer" in main_cpp
+    assert "-DUSE_ZEPHYR_VARIANT_FAMILY_INFINEON_PSOC6" in CORE.build_flags
+    assert "bsd_sockets_impl.cpp" not in socket.FILTER_SOURCE_FILES()
+    prj_conf = zephyr_data()[KEY_PRJ_CONF][""]
+    assert prj_conf["CONFIG_NET_SOCKETS"] == (True, True)
+    assert prj_conf["CONFIG_NET_TCP"] == (True, True)
+    assert prj_conf["CONFIG_DNS_RESOLVER"] == (True, True)
+    assert "CONFIG_MDNS_RESPONDER" not in prj_conf
 
 
 def test_variant_from_another_family_is_rejected(

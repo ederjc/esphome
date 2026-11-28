@@ -1,0 +1,17 @@
+esphome:
+  name: psoc6-wifi-smoke
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+
+logger:
+
+wifi:
+  ssid: esphome-compile-only
+  enable_on_boot: false
