@@ -23,11 +23,37 @@ enum class Result {
 inline constexpr uint8_t REG_MAIN = 0x00;
 inline constexpr uint8_t REG_CHIP_ID = 0x02;
 inline constexpr uint8_t REG_SFCTL = 0x06;
+inline constexpr uint8_t REG_CCR2 = 0x2E;
 inline constexpr uint8_t REG_FSTAT = 0x5F;
+inline constexpr uint8_t REG_FIFO = 0x60;
 inline constexpr uint32_t CHIP_ID = 0x000303;
 inline constexpr uint32_t FSTAT_ERRORS = 0xCE0000;
+inline constexpr uint32_t FSTAT_FILL = 0x003FFF;
 inline constexpr size_t FIFO_WORDS = 8192;
 inline constexpr size_t MAX_BURST_SAMPLES = 256;
+
+inline constexpr uint32_t MAIN_FRAME_START = 0x000001;
+inline constexpr uint32_t MAIN_RESET_SW = 0x000002;
+inline constexpr uint32_t MAIN_RESET_FSM = 0x000004;
+inline constexpr uint32_t MAIN_RESET_FIFO = 0x000008;
+inline constexpr uint32_t SFCTL_FIFO_CREF = 0x001FFF;
+inline constexpr uint32_t SFCTL_MISO_HS_READ = 0x010000;
+// Datasheet CCR2: MAX_FRAME_CNT occupies bits 11:0; 0 means unbounded.
+inline constexpr uint32_t CCR2_MAX_FRAME_CNT = 0x000FFF;
+
+// A configurator register word is a ready-made SPI write command: address in bits 31:25,
+// write flag in bit 24 and 24-bit register data below it.
+constexpr uint8_t config_word_address(uint32_t word) { return uint8_t(word >> 25); }
+constexpr uint32_t config_word_data(uint32_t word) { return word & 0xFFFFFF; }
+constexpr bool config_word_valid(uint32_t word) {
+  return (word & 0x01000000) != 0 && config_word_address(word) < REG_FIFO;
+}
+
+// Vendor xensiv_bgt60trxx_config() semantics: the FIFO limit and MISO high-speed bit in
+// SFCTL are owned by the driver, not by the generated list.
+constexpr uint32_t sfctl_with_limit(uint32_t sfctl, uint32_t limit_words) {
+  return (sfctl & ~(SFCTL_FIFO_CREF | SFCTL_MISO_HS_READ)) | ((limit_words - 1) & SFCTL_FIFO_CREF);
+}
 
 constexpr std::array<uint8_t, 4> register_packet(uint8_t address, uint32_t data = 0, bool write = false) {
   return {uint8_t((address << 1) | (write ? 1 : 0)), uint8_t(data >> 16), uint8_t(data >> 8), uint8_t(data)};
@@ -89,6 +115,50 @@ class Protocol {
     if (result != Result::RESULT_OK)
       return result;
     return actual == value ? Result::RESULT_OK : Result::RESULT_READBACK_ERROR;
+  }
+
+  Result write_register(uint8_t address, uint32_t value) {
+    if (address >= REG_FIFO || value > 0xFFFFFF)
+      return Result::RESULT_INVALID_ARGUMENT;
+    auto packet = register_packet(address, value, true);
+    if (!this->transaction_(packet.data(), packet.size()))
+      return Result::RESULT_TRANSPORT_ERROR;
+    this->gsr_ = packet[0];
+    return (this->gsr_ & 0x0D) == 0 ? Result::RESULT_OK : Result::RESULT_STATUS_ERROR;
+  }
+
+  // Vendor xensiv_bgt60trxx_soft_reset(): set MAIN reset bits, wait for self-clear, then settle 10 ms.
+  // Bounded here instead of the vendor's effectively unbounded poll.
+  Result soft_reset(uint32_t mask) {
+    if (mask == 0 || (mask & ~(MAIN_RESET_SW | MAIN_RESET_FSM | MAIN_RESET_FIFO)) != 0)
+      return Result::RESULT_INVALID_ARGUMENT;
+    uint32_t main;
+    auto result = this->read_register_(REG_MAIN, main, true);
+    if (result != Result::RESULT_OK)
+      return result;
+    auto packet = register_packet(REG_MAIN, (main & ~MAIN_FRAME_START) | mask, true);
+    if (!this->transaction_(packet.data(), packet.size()))
+      return Result::RESULT_TRANSPORT_ERROR;
+    for (unsigned i = 0; i < 10; i++) {
+      result = this->read_register_(REG_MAIN, main, true);
+      if (result != Result::RESULT_OK)
+        return result;
+      if ((main & mask) == 0) {
+        this->transport_.delay_ms(10);
+        return Result::RESULT_OK;
+      }
+      this->transport_.delay_ms(1);
+    }
+    return Result::RESULT_TIMEOUT;
+  }
+
+  // Vendor xensiv_bgt60trxx_start_frame(true): read-modify-write MAIN.FRAME_START.
+  Result start_frame() {
+    uint32_t main;
+    auto result = this->read_register(REG_MAIN, main);
+    if (result != Result::RESULT_OK)
+      return result;
+    return this->write_register(REG_MAIN, main | MAIN_FRAME_START);
   }
 
   Result fifo_status(uint32_t &status) {
