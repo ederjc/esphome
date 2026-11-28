@@ -1,7 +1,9 @@
 /*
+ * Copyright (c) 2026 Infineon Technologies AG
+ *
  * SPDX-License-Identifier: Apache-2.0
  *
- * CY8C624ABZI-S2D44 MXAUDIOSS v1, not the MXPDM v2 peripheral.
+ * PSOC 6 MXAUDIOSS v1 PDM-PCM, not the MXPDM v2 peripheral.
  */
 #define DT_DRV_COMPAT infineon_pdm_v1
 
@@ -154,31 +156,33 @@ static int pdm_v1_configure(const struct device *dev, struct dmic_cfg *requested
 		return ret;
 	}
 	cy_stc_pdm_pcm_config_t pdl = {
-	    .clkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
-	    .mclkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
-	    .ckoDiv = 3, /* 8 MHz / (3 + 1) = 2 MHz, 50% duty */
-	    .ckoDelay = 3,
-	    .sincDecRate = 64, /* 2 MHz / (2 * 64) = 15625 stereo frames/s */
-	    .chanSelect = CY_PDM_PCM_OUT_STEREO,
-	    .chanSwapEnable = false,
-	    .highPassFilterGain = 11,
-	    .highPassDisable = false,
-	    .softMuteCycles = CY_PDM_PCM_SOFT_MUTE_CYCLES_96,
-	    .softMuteFineGain = 0,
-	    .softMuteEnable = false,
-	    .wordLen = CY_PDM_PCM_WLEN_16_BIT,
-	    .signExtension = true,
-	    .gainLeft = CY_PDM_PCM_BYPASS,
-	    .gainRight = CY_PDM_PCM_BYPASS,
-	    .rxFifoTriggerLevel = 63,
-	    .dmaTriggerEnable = false,
-	    .interruptMask = 0,
+		.clkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
+		.mclkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
+		.ckoDiv = 3, /* 8 MHz / (3 + 1) = 2 MHz, 50% duty */
+		.ckoDelay = 3,
+		.sincDecRate = 64, /* 2 MHz / (2 * 64) = 15625 stereo frames/s */
+		.chanSelect = CY_PDM_PCM_OUT_STEREO,
+		.chanSwapEnable = false,
+		.highPassFilterGain = 11,
+		.highPassDisable = false,
+		.softMuteCycles = CY_PDM_PCM_SOFT_MUTE_CYCLES_96,
+		.softMuteFineGain = 0,
+		.softMuteEnable = false,
+		.wordLen = CY_PDM_PCM_WLEN_16_BIT,
+		.signExtension = true,
+		.gainLeft = CY_PDM_PCM_BYPASS,
+		.gainRight = CY_PDM_PCM_BYPASS,
+		.rxFifoTriggerLevel = 63,
+		.dmaTriggerEnable = false,
+		.interruptMask = 0,
 	};
 	unsigned int key = irq_lock();
 
 	quiesce(dev);
 	release_buffers(dev);
 	if (Cy_PDM_PCM_Init(config->base, &pdl) != CY_PDM_PCM_SUCCESS) {
+		data->slab = NULL;
+		data->block_size = 0;
 		data->state = DMIC_STATE_INITIALIZED;
 		irq_unlock(key);
 		return -EIO;
@@ -217,8 +221,8 @@ static int pdm_v1_trigger(const struct device *dev, enum dmic_trigger command)
 		Cy_PDM_PCM_ClearInterrupt(config->base, CY_PDM_PCM_INTR_MASK);
 		data->state = DMIC_STATE_ACTIVE;
 		Cy_PDM_PCM_SetInterruptMask(config->base, CY_PDM_PCM_INTR_RX_TRIGGER |
-							      CY_PDM_PCM_INTR_RX_OVERFLOW |
-							      CY_PDM_PCM_INTR_RX_UNDERFLOW);
+								  CY_PDM_PCM_INTR_RX_OVERFLOW |
+								  CY_PDM_PCM_INTR_RX_UNDERFLOW);
 		Cy_PDM_PCM_Enable(config->base);
 		break;
 	case DMIC_TRIGGER_STOP:
@@ -249,21 +253,21 @@ static int pdm_v1_read(const struct device *dev, uint8_t stream, void **buffer, 
 	}
 	*buffer = NULL;
 	*size = 0;
-	if (timeout != 0) {
-		return -ENOTSUP;
-	}
 	unsigned int key = irq_lock();
+	enum dmic_state state = data->state;
 
-	if (data->state != DMIC_STATE_ACTIVE) {
-		irq_unlock(key);
+	irq_unlock(key);
+	if (state != DMIC_STATE_ACTIVE) {
 		return -EIO;
 	}
-	int ret = k_msgq_get(&data->queue, buffer, K_NO_WAIT);
+
+	/* Wait without holding the IRQ lock so the ISR can complete blocks. */
+	int ret = k_msgq_get(&data->queue, buffer, SYS_TIMEOUT_MS(timeout));
 
 	if (ret == 0) {
+		/* Configure/STOP purge the queue, so a dequeued block matches the current size. */
 		*size = data->block_size;
 	}
-	irq_unlock(key);
 	return ret;
 }
 
@@ -281,9 +285,9 @@ static int pdm_v1_init(const struct device *dev)
 }
 
 static DEVICE_API(dmic, pdm_v1_api) = {
-    .configure = pdm_v1_configure,
-    .trigger = pdm_v1_trigger,
-    .read = pdm_v1_read,
+	.configure = pdm_v1_configure,
+	.trigger = pdm_v1_trigger,
+	.read = pdm_v1_read,
 };
 
 #define PDM_V1_DEFINE(inst)                                                                        \
@@ -297,9 +301,9 @@ static DEVICE_API(dmic, pdm_v1_api) = {
 	}                                                                                          \
 	static struct pdm_v1_data pdm_v1_data_##inst;                                              \
 	static const struct pdm_v1_config pdm_v1_config_##inst = {                                 \
-	    .base = (PDM_Type *)DT_INST_REG_ADDR(inst),                                            \
-	    .pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                       \
-	    .connect_irq = pdm_v1_irq_##inst,                                                      \
+		.base = (PDM_Type *)DT_INST_REG_ADDR(inst),                                        \
+		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
+		.connect_irq = pdm_v1_irq_##inst,                                                  \
 	};                                                                                         \
 	DEVICE_DT_INST_DEFINE(inst, pdm_v1_init, NULL, &pdm_v1_data_##inst, &pdm_v1_config_##inst, \
 			      POST_KERNEL, CONFIG_AUDIO_DMIC_INIT_PRIORITY, &pdm_v1_api);

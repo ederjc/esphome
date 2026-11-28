@@ -35,6 +35,7 @@ static void before(void *fixture)
 	zassert_ok(pdm_v1_init(&device));
 	zassert_equal(data.state, DMIC_STATE_INITIALIZED);
 	fake_hf1 = 8000000;
+	fake_pdm_init_result = CY_PDM_PCM_SUCCESS;
 }
 
 static void inject_pairs(unsigned int frames, uint16_t left, uint16_t right)
@@ -141,18 +142,18 @@ ZTEST(pdm_v1, test_exhaustion_is_error_until_stop_and_restart)
 	zassert_equal(pdm_v1_trigger(&device, DMIC_TRIGGER_START), -EIO);
 }
 
-ZTEST(pdm_v1, test_nonblocking_read_and_borrowed_metadata_survive_reset)
+ZTEST(pdm_v1, test_read_timeouts_and_borrowed_metadata_survive_reset)
 {
 	configure_and_start();
-	inject_pairs(4, 13, 1013);
 	void *buffer;
 	size_t bytes;
 
-	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 10), -ENOTSUP);
+	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 0), -ENOMSG);
+	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 10), -EAGAIN);
 	zassert_is_null(buffer);
 	zassert_equal(bytes, 0);
-	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, SYS_FOREVER_MS), -ENOTSUP);
-	zassert_ok(pdm_v1_read(&device, 0, &buffer, &bytes, 0));
+	inject_pairs(4, 13, 1013);
+	zassert_ok(pdm_v1_read(&device, 0, &buffer, &bytes, SYS_FOREVER_MS));
 	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_RESET));
 	zassert_equal(bytes, 16);
 	zassert_equal(((uint16_t *)buffer)[0], 13);
@@ -163,6 +164,31 @@ ZTEST(pdm_v1, test_nonblocking_read_and_borrowed_metadata_survive_reset)
 	zassert_equal(pdm_v1_read(&device, 0, &buffer, &bytes, 0), -EIO);
 	zassert_is_null(buffer);
 	zassert_equal(bytes, 0);
+}
+
+ZTEST(pdm_v1, test_failed_pdl_init_drops_previous_configuration)
+{
+	struct pcm_stream_cfg stream = {
+	    .pcm_rate = 15625,
+	    .pcm_width = 16,
+	    .block_size = 16,
+	    .mem_slab = &test_slab,
+	};
+	struct dmic_cfg cfg = request(&stream);
+
+	configure_and_start();
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_STOP));
+	zassert_equal(data.state, DMIC_STATE_CONFIGURED);
+	fake_pdm_init_result = CY_PDM_PCM_BAD_PARAM;
+	zassert_equal(pdm_v1_configure(&device, &cfg), -EIO);
+	zassert_equal(data.state, DMIC_STATE_INITIALIZED);
+	zassert_is_null(data.slab);
+	zassert_equal(data.block_size, 0);
+	zassert_ok(pdm_v1_trigger(&device, DMIC_TRIGGER_STOP));
+	zassert_equal(data.state, DMIC_STATE_INITIALIZED);
+	zassert_equal(pdm_v1_trigger(&device, DMIC_TRIGGER_START), -EIO);
+	zassert_false(registers.enabled);
+	zassert_equal(k_mem_slab_num_used_get(&test_slab), 0);
 }
 
 const struct device *pdm_test_reset(void)

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Infineon Technologies AG
 # SPDX-License-Identifier: Apache-2.0
 
 description: |
@@ -14,8 +15,7 @@ properties:
   interrupts:
     required: true
   clocks:
-    required: true
-    description: Dedicated AUDIOSS HF1 clock; must be enabled at 8 MHz.
+    description: AUDIOSS HF1 clock source; the driver requires it to run at 8 MHz.
   pinctrl-0:
     required: true
   pinctrl-names:

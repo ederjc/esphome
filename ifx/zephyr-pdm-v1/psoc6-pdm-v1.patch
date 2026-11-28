@@ -1,8 +1,8 @@
 diff --git a/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts b/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts
-index a05471cb7..e94b394b0 100644
+index a05471cb7..3a4209bb9 100644
 --- a/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts
 +++ b/boards/infineon/cy8ckit_062s2_ai/cy8ckit_062s2_ai.dts
-@@ -63,6 +63,36 @@
+@@ -63,6 +63,31 @@
  	clocks = <&fll0>;
  };
  
@@ -24,16 +24,11 @@ index a05471cb7..e94b394b0 100644
 +	};
 +};
 +
-+&{/soc} {
-+	pdm0: pdm@40a00000 {
-+		compatible = "infineon,pdm-v1";
-+		reg = <0x40a00000 0x10000>;
-+		interrupts = <157 6>;
-+		clocks = <&clk_hf1>;
-+		pinctrl-0 = <&p10_4_audioss0_pdm_clk &p10_5_audioss0_pdm_data>;
-+		pinctrl-names = "default";
-+		status = "okay";
-+	};
++&pdm0 {
++	clocks = <&clk_hf1>;
++	pinctrl-0 = <&p10_4_audioss0_pdm_clk &p10_5_audioss0_pdm_data>;
++	pinctrl-names = "default";
++	status = "okay";
 +};
 +
  /* CM4 core clock = 100MHz
@@ -65,21 +60,22 @@ index 933bb0fcd..750384a3a 100644
  source "drivers/audio/Kconfig.dmic_native_sim"
 diff --git a/drivers/audio/Kconfig.dmic_infineon_pdm_v1 b/drivers/audio/Kconfig.dmic_infineon_pdm_v1
 new file mode 100644
-index 000000000..1ec4ff956
+index 000000000..69fb1f962
 --- /dev/null
 +++ b/drivers/audio/Kconfig.dmic_infineon_pdm_v1
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,19 @@
++# Copyright (c) 2026 Infineon Technologies AG
 +# SPDX-License-Identifier: Apache-2.0
 +
 +config AUDIO_DMIC_INFINEON_PDM_V1
 +	bool "Infineon PSOC 6 MXAUDIOSS v1 stereo DMIC"
 +	default y
-+	depends on SOC_CY8C624ABZI_S2D44
++	depends on SOC_DIE_PSOC6_02
 +	depends on DT_HAS_INFINEON_PDM_V1_ENABLED
 +	select USE_INFINEON_PDM_PCM
 +	select PINCTRL
 +	help
-+	  Single-board PDMv1 driver using IRQ-driven interleaved signed 16-bit
++	  PSOC 6 MXAUDIOSS v1 PDM driver using IRQ-driven interleaved signed 16-bit
 +	  stereo PCM slabs. Requires HF1 = 8 MHz. Supports 15625 frames/s only.
 +
 +config DMIC_INFINEON_PDM_V1_QUEUE_SIZE
@@ -89,14 +85,16 @@ index 000000000..1ec4ff956
 +	range 2 16
 diff --git a/drivers/audio/dmic_infineon_pdm_v1.c b/drivers/audio/dmic_infineon_pdm_v1.c
 new file mode 100644
-index 000000000..e1670a6e1
+index 000000000..60de39c6b
 --- /dev/null
 +++ b/drivers/audio/dmic_infineon_pdm_v1.c
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,311 @@
 +/*
++ * Copyright (c) 2026 Infineon Technologies AG
++ *
 + * SPDX-License-Identifier: Apache-2.0
 + *
-+ * CY8C624ABZI-S2D44 MXAUDIOSS v1, not the MXPDM v2 peripheral.
++ * PSOC 6 MXAUDIOSS v1 PDM-PCM, not the MXPDM v2 peripheral.
 + */
 +#define DT_DRV_COMPAT infineon_pdm_v1
 +
@@ -249,31 +247,33 @@ index 000000000..e1670a6e1
 +		return ret;
 +	}
 +	cy_stc_pdm_pcm_config_t pdl = {
-+	    .clkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
-+	    .mclkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
-+	    .ckoDiv = 3, /* 8 MHz / (3 + 1) = 2 MHz, 50% duty */
-+	    .ckoDelay = 3,
-+	    .sincDecRate = 64, /* 2 MHz / (2 * 64) = 15625 stereo frames/s */
-+	    .chanSelect = CY_PDM_PCM_OUT_STEREO,
-+	    .chanSwapEnable = false,
-+	    .highPassFilterGain = 11,
-+	    .highPassDisable = false,
-+	    .softMuteCycles = CY_PDM_PCM_SOFT_MUTE_CYCLES_96,
-+	    .softMuteFineGain = 0,
-+	    .softMuteEnable = false,
-+	    .wordLen = CY_PDM_PCM_WLEN_16_BIT,
-+	    .signExtension = true,
-+	    .gainLeft = CY_PDM_PCM_BYPASS,
-+	    .gainRight = CY_PDM_PCM_BYPASS,
-+	    .rxFifoTriggerLevel = 63,
-+	    .dmaTriggerEnable = false,
-+	    .interruptMask = 0,
++		.clkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
++		.mclkDiv = CY_PDM_PCM_CLK_DIV_BYPASS,
++		.ckoDiv = 3, /* 8 MHz / (3 + 1) = 2 MHz, 50% duty */
++		.ckoDelay = 3,
++		.sincDecRate = 64, /* 2 MHz / (2 * 64) = 15625 stereo frames/s */
++		.chanSelect = CY_PDM_PCM_OUT_STEREO,
++		.chanSwapEnable = false,
++		.highPassFilterGain = 11,
++		.highPassDisable = false,
++		.softMuteCycles = CY_PDM_PCM_SOFT_MUTE_CYCLES_96,
++		.softMuteFineGain = 0,
++		.softMuteEnable = false,
++		.wordLen = CY_PDM_PCM_WLEN_16_BIT,
++		.signExtension = true,
++		.gainLeft = CY_PDM_PCM_BYPASS,
++		.gainRight = CY_PDM_PCM_BYPASS,
++		.rxFifoTriggerLevel = 63,
++		.dmaTriggerEnable = false,
++		.interruptMask = 0,
 +	};
 +	unsigned int key = irq_lock();
 +
 +	quiesce(dev);
 +	release_buffers(dev);
 +	if (Cy_PDM_PCM_Init(config->base, &pdl) != CY_PDM_PCM_SUCCESS) {
++		data->slab = NULL;
++		data->block_size = 0;
 +		data->state = DMIC_STATE_INITIALIZED;
 +		irq_unlock(key);
 +		return -EIO;
@@ -312,8 +312,8 @@ index 000000000..e1670a6e1
 +		Cy_PDM_PCM_ClearInterrupt(config->base, CY_PDM_PCM_INTR_MASK);
 +		data->state = DMIC_STATE_ACTIVE;
 +		Cy_PDM_PCM_SetInterruptMask(config->base, CY_PDM_PCM_INTR_RX_TRIGGER |
-+							      CY_PDM_PCM_INTR_RX_OVERFLOW |
-+							      CY_PDM_PCM_INTR_RX_UNDERFLOW);
++								  CY_PDM_PCM_INTR_RX_OVERFLOW |
++								  CY_PDM_PCM_INTR_RX_UNDERFLOW);
 +		Cy_PDM_PCM_Enable(config->base);
 +		break;
 +	case DMIC_TRIGGER_STOP:
@@ -344,21 +344,21 @@ index 000000000..e1670a6e1
 +	}
 +	*buffer = NULL;
 +	*size = 0;
-+	if (timeout != 0) {
-+		return -ENOTSUP;
-+	}
 +	unsigned int key = irq_lock();
++	enum dmic_state state = data->state;
 +
-+	if (data->state != DMIC_STATE_ACTIVE) {
-+		irq_unlock(key);
++	irq_unlock(key);
++	if (state != DMIC_STATE_ACTIVE) {
 +		return -EIO;
 +	}
-+	int ret = k_msgq_get(&data->queue, buffer, K_NO_WAIT);
++
++	/* Wait without holding the IRQ lock so the ISR can complete blocks. */
++	int ret = k_msgq_get(&data->queue, buffer, SYS_TIMEOUT_MS(timeout));
 +
 +	if (ret == 0) {
++		/* Configure/STOP purge the queue, so a dequeued block matches the current size. */
 +		*size = data->block_size;
 +	}
-+	irq_unlock(key);
 +	return ret;
 +}
 +
@@ -376,9 +376,9 @@ index 000000000..e1670a6e1
 +}
 +
 +static DEVICE_API(dmic, pdm_v1_api) = {
-+    .configure = pdm_v1_configure,
-+    .trigger = pdm_v1_trigger,
-+    .read = pdm_v1_read,
++	.configure = pdm_v1_configure,
++	.trigger = pdm_v1_trigger,
++	.read = pdm_v1_read,
 +};
 +
 +#define PDM_V1_DEFINE(inst)                                                                        \
@@ -392,20 +392,39 @@ index 000000000..e1670a6e1
 +	}                                                                                          \
 +	static struct pdm_v1_data pdm_v1_data_##inst;                                              \
 +	static const struct pdm_v1_config pdm_v1_config_##inst = {                                 \
-+	    .base = (PDM_Type *)DT_INST_REG_ADDR(inst),                                            \
-+	    .pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                       \
-+	    .connect_irq = pdm_v1_irq_##inst,                                                      \
++		.base = (PDM_Type *)DT_INST_REG_ADDR(inst),                                        \
++		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
++		.connect_irq = pdm_v1_irq_##inst,                                                  \
 +	};                                                                                         \
 +	DEVICE_DT_INST_DEFINE(inst, pdm_v1_init, NULL, &pdm_v1_data_##inst, &pdm_v1_config_##inst, \
 +			      POST_KERNEL, CONFIG_AUDIO_DMIC_INIT_PRIORITY, &pdm_v1_api);
 +
 +DT_INST_FOREACH_STATUS_OKAY(PDM_V1_DEFINE)
+diff --git a/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi b/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi
+index 6f85411e2..22c421683 100644
+--- a/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi
++++ b/dts/arm/infineon/cat1a/psoc6_02/psoc6_02.dtsi
+@@ -349,6 +349,13 @@
+ 			status = "disabled";
+ 		};
+ 
++		pdm0: pdm@40a00000 {
++			compatible = "infineon,pdm-v1";
++			reg = <0x40a00000 0x10000>;
++			interrupts = <157 6>;
++			status = "disabled";
++		};
++
+ 		adc0: adc@409d0000 {
+ 			compatible = "infineon,adc";
+ 			reg = <0x409d0000 0x10000>;
 diff --git a/dts/bindings/audio/infineon,pdm-v1.yaml b/dts/bindings/audio/infineon,pdm-v1.yaml
 new file mode 100644
-index 000000000..2b54ac732
+index 000000000..2a8eb6336
 --- /dev/null
 +++ b/dts/bindings/audio/infineon,pdm-v1.yaml
 @@ -0,0 +1,22 @@
++# Copyright (c) 2026 Infineon Technologies AG
 +# SPDX-License-Identifier: Apache-2.0
 +
 +description: |
@@ -422,21 +441,20 @@ index 000000000..2b54ac732
 +  interrupts:
 +    required: true
 +  clocks:
-+    required: true
-+    description: Dedicated AUDIOSS HF1 clock; must be enabled at 8 MHz.
++    description: AUDIOSS HF1 clock source; the driver requires it to run at 8 MHz.
 +  pinctrl-0:
 +    required: true
 +  pinctrl-names:
 +    required: true
 diff --git a/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt b/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt
-index c1c0f67b9..cbe964271 100644
+index c1c0f67b9..e69a02147 100644
 --- a/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt
 +++ b/modules/hal_infineon/mtb-pdl-cat1/CMakeLists.txt
 @@ -49,6 +49,7 @@ zephyr_library_sources_ifdef(CONFIG_USE_INFINEON_TIMER    ${pdl_drv_dir}/source/
  zephyr_library_sources_ifdef(CONFIG_USE_INFINEON_UART     ${pdl_drv_dir}/source/cy_scb_uart.c)
  zephyr_library_sources_ifdef(CONFIG_USE_INFINEON_WDT      ${pdl_drv_dir}/source/cy_wdt.c)
  zephyr_library_sources_ifdef(CONFIG_USE_INFINEON_LPCOMP   ${pdl_drv_dir}/source/cy_lpcomp.c)
-+zephyr_library_sources_ifdef(CONFIG_AUDIO_DMIC_INFINEON_PDM_V1 ${pdl_drv_dir}/source/cy_pdm_pcm.c)
++zephyr_library_sources_ifdef(CONFIG_USE_INFINEON_PDM_PCM ${pdl_drv_dir}/source/cy_pdm_pcm.c)
  
  if(CONFIG_USE_INFINEON_FLASH)
    zephyr_library_sources(${pdl_drv_dir}/source/cy_flash.c)
