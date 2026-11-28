@@ -369,6 +369,7 @@ FILTER_SOURCE_FILES = filter_source_files_from_platform(
         },
         "mdns_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF52_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,

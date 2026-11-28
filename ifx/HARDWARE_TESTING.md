@@ -57,6 +57,65 @@ consecutive boot counters. Run it from the repository root:
 The runner does not actuate the user button or observe the LED; verify those
 separately before marking the GPIO input test as passed.
 
+## DPS368 measurements
+
+The existing `dps310` component supports the onboard DPS368; do not duplicate
+the driver. Compile `tests/components/infineon/test-dps368.zephyr.yaml` and
+flash its credential-free factory image with the same reservation and recovery
+procedure. SCB0 uses P0.2/P0.3 and the sensor address is `0x77`; no jumper is
+required. Capture at least five temperature and five pressure publications
+from the SCB5 logger. Require finite values within the sensor's rated ranges
+(-40 to 85 degrees Celsius and 300 to 1200 hPa), with no setup or communication
+failure. These checks demonstrate live measurements, not calibrated accuracy.
+Record the observed ranges and restore and verify the known-good core image
+before releasing the kit.
+
+## BMI270 measurements
+
+Reuse the existing `bmi270` motion component with `aux_device: NONE` for the
+onboard IMU; BMM150 auxiliary support is not BMM350 support. Compile
+`tests/components/infineon/test-bmi270.zephyr.yaml`, reserve the kit and flash
+the credential-free factory image. Leave the board stationary. After its new
+boot marker, capture at least five coherent accelerometer/gyroscope vectors
+from the verbose motion log and five temperature publications. Require finite
+data, gravity magnitude between 0.85 and 1.15 g, each angular-rate axis within
+5 degrees per second of rest, and temperature between -40 and 85 degrees
+Celsius. These are static sanity checks, not calibrated accuracy, dynamic
+response or axis-orientation validation. Restore and verify the core image
+and overwrite any stale bench rows before releasing the kit.
+
+## BMM350 fresh-capture smoke test
+
+Use the credential-free `ifx/fixtures/bmm350.yaml` and the corresponding freshly
+built `zephyr.hex`. Reserve the kit as above; the parent bench harness/kit owner
+performs these steps, not the component author:
+
+1. Halt the target, program the fresh image, and verify flash while it remains
+   halted. Save the image digest and programming verification result.
+2. Open UART0/SCB5 at the fixture's logger baud rate and clear the serial receive
+   buffer while halted. Discard all earlier serial data.
+3. Reset and run the target. Require a new `BMM350 smoke boot` marker after this
+   reset before accepting any samples. Ignore pre-marker values; a missing
+   fresh marker fails the capture. The fixture emits this marker at boot
+   priority -100.
+4. Capture at least **five live publications per channel** after the fresh
+   marker: `BMM350 field_x=... uT`, `field_y`, `field_z` and
+   `BMM350 temperature=... C`. These lines come only from `on_value` callbacks;
+   cached-state polling and replayed logs do not count.
+5. Every accepted sample must be finite. Require temperature in **[-40, 85] °C**
+   and each native magnetic axis in **[-2000, 2000] µT**, inclusively. Reject
+   a fully-zero XYZ window (all three axes zero throughout the accepted
+   window), not individual zero triples; an individual axis may legitimately
+   approach zero.
+   Retain the sample counts, values and boot marker in sanitized evidence.
+
+This verifies fresh firmware, initialization, data delivery and basic
+plausibility, **not calibrated magnetic accuracy**. Do not claim heading,
+orientation calibration or hard/soft iron compensation. Peer review approval
+and fork CI must still be green before merging; actual kit evidence remains
+mandatory. Do not infer hardware success from compilation, vendor-oracle
+vectors or the Windows C++ runner's intentional skip.
+
 Link evidence from the PR: commit tested, board and revision, config or build
 command, relevant tool versions, test steps, expected and actual results, and
 sanitized logs or captures. List what was not tested. If no kit behavior could

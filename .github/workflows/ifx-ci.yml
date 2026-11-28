@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 45
     env:
       INFINEON_SMOKE_CONFIG: tests/components/infineon/test.zephyr.yaml
+      BMM350_SMOKE_CONFIG: ifx/fixtures/bmm350.yaml
       ESPHOME_ZEPHYR_PREFIX: ${{ github.workspace }}/.cache/ifx-zephyr
     steps:
       - name: Check out code
@@ -40,6 +41,9 @@ jobs:
           else
             echo "::notice::Skipping compile until the Infineon platform and its fixture land."
           fi
+      - name: Require the BMM350 smoke configuration
+        shell: bash
+        run: test -f "$BMM350_SMOKE_CONFIG"
       - name: Set up Python
         id: python
         uses: actions/setup-python@v7.1.0
@@ -59,6 +63,7 @@ jobs:
           ruff check esphome ifx tests script
           ruff format --check esphome ifx tests script
           yamllint .github/workflows/ifx-ci.yml
+          yamllint "$BMM350_SMOKE_CONFIG"
           if [[ -f "$INFINEON_SMOKE_CONFIG" ]]; then
             yamllint "$INFINEON_SMOKE_CONFIG"
           fi
@@ -67,11 +72,14 @@ jobs:
         run: |
           tests=(tests/unit_tests/components/zephyr
                  tests/unit_tests/test_platform_hooks.py
-                 tests/unit_tests/test_stacktrace.py)
+                 tests/unit_tests/test_stacktrace.py
+                 tests/unit_tests/components/test_bmm350.py)
           if [[ -d tests/unit_tests/components/infineon ]]; then
             tests+=(tests/unit_tests/components/infineon)
           fi
           python -m pytest -q --no-cov "${tests[@]}"
+      - name: Run BMM350 C++ behavior tests
+        run: python script/cpp_unit_test.py bmm350
       - name: Run portable radar protocol and SPI delegate tests
         run: |
           cmake -S ifx/tests/bgt60tr13c -B build/ifx-radar-tests -DCMAKE_BUILD_TYPE=Debug
@@ -86,7 +94,8 @@ jobs:
           key: >-
             ifx-zephyr-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.python-version }}-${{
             hashFiles('esphome/components/zephyr/*.py', 'esphome/components/zephyr/requirements.txt',
-                      'esphome/components/infineon/zephyr_variants/**', env.INFINEON_SMOKE_CONFIG) }}
+                      'esphome/components/infineon/zephyr_variants/**',
+                      env.INFINEON_SMOKE_CONFIG, env.BMM350_SMOKE_CONFIG) }}
       - name: Install Zephyr host tools
         if: steps.smoke.outputs.enabled == 'true'
         run: |
@@ -95,6 +104,18 @@ jobs:
       - name: Compile Infineon firmware
         if: steps.smoke.outputs.enabled == 'true'
         run: python -m esphome compile "$INFINEON_SMOKE_CONFIG"
+      - name: Compile onboard DPS368 fixture
+        if: steps.smoke.outputs.enabled == 'true'
+        run: |
+          yamllint tests/components/infineon/test-dps368.zephyr.yaml
+          python -m esphome compile tests/components/infineon/test-dps368.zephyr.yaml
+      - name: Compile onboard BMI270 fixture
+        if: steps.smoke.outputs.enabled == 'true'
+        run: |
+          yamllint tests/components/infineon/test-bmi270.zephyr.yaml
+          python -m esphome compile tests/components/infineon/test-bmi270.zephyr.yaml
+      - name: Compile BMM350 firmware
+        run: python -m esphome compile "$BMM350_SMOKE_CONFIG"
       - name: Compile onboard radar SPI identification
         run: python -m esphome compile tests/components/infineon/test-radar-spi.zephyr.yaml
       - name: Compile the BGT60TR13C register diagnostic
