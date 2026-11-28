@@ -1,0 +1,69 @@
+esphome:
+  name: psoc6-bmi270-smoke
+  on_boot:
+    priority: -100
+    then:
+      - logger.log:
+          level: INFO
+          tag: bmi270_smoke
+          format: BMI270 smoke boot
+
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+
+logger:
+  hardware_uart: UART0
+  level: VERBOSE
+  logs:
+    i2c: INFO
+    sensor: INFO
+
+# SCB0: onboard BMI270, SCL P0.2 and SDA P0.3.
+i2c:
+  id: scb0_bus
+  scan: false
+
+motion:
+  - platform: bmi270
+    id: bmi270_motion
+    i2c_id: scb0_bus
+    address: 0x68
+    update_interval: 2s
+    aux_device: NONE
+
+sensor:
+  - platform: bmi270
+    bmi270_id: bmi270_motion
+    name: BMI270 Temperature
+    on_value:
+      - lambda: ESP_LOGI("bmi270_smoke", "BMI270 temperature=%.3f C", x);
+  - platform: motion
+    motion_id: bmi270_motion
+    type: acceleration_x
+    name: BMI270 Acceleration X
+  - platform: motion
+    motion_id: bmi270_motion
+    type: acceleration_y
+    name: BMI270 Acceleration Y
+  - platform: motion
+    motion_id: bmi270_motion
+    type: acceleration_z
+    name: BMI270 Acceleration Z
+  - platform: motion
+    motion_id: bmi270_motion
+    type: gyroscope_x
+    name: BMI270 Angular Rate X
+  - platform: motion
+    motion_id: bmi270_motion
+    type: gyroscope_y
+    name: BMI270 Angular Rate Y
+  - platform: motion
+    motion_id: bmi270_motion
+    type: gyroscope_z
+    name: BMI270 Angular Rate Z

@@ -2,6 +2,7 @@ import esphome.codegen as cg
 from esphome.components.zephyr import (
     zephyr_add_overlay,
     zephyr_add_prj_conf,
+    zephyr_add_prj_conf_min,
     zephyr_setup_preferences,
 )
 from esphome.components.zephyr.const import CONF_RUNNER
@@ -18,14 +19,16 @@ from esphome.const import (
     CONF_BOARD,
     CONF_FRAMEWORK,
     CONF_SOURCE,
+    CONF_WIFI,
     ThreadModel,
     Toolchain,
 )
+from esphome.core import CORE
 from esphome.types import ConfigType
 
 from . import infineon_psoc6_family
 
-_BOARD = "cy8ckit_062s2_ai"
+_BOARD = infineon_psoc6_family.AI_KIT_BOARD
 
 VARIANT = ZephyrVariant(
     name="CY8C624A",
@@ -44,6 +47,18 @@ VARIANT = ZephyrVariant(
     gpio_node_prefix="gpio_prt",
     uart_node_labels={"UART0": "scb5", "UART1": "scb1"},
     watchdog_max_timeout_ms=6000,
+    transports=frozenset({"wifi"}),
+    transport_drivers={"wifi": ("WIFI_AIROC", "airoc_wifi")},
+    transport_blobs={
+        "wifi": (
+            "hal_infineon",
+            (
+                r"img/whd/resources/(firmware/COMPONENT_43439/43439A0\.bin|"
+                r"clm/COMPONENT_43439/COMPONENT_MURATA-1YN/43439A0\.clm_blob)$"
+            ),
+            ".blobs_cyw43439_murata_1yn_ready",
+        ),
+    },
 )
 
 # The CM0+ companion image is linked at the start of the application partition.
@@ -105,6 +120,73 @@ _ENTROPY_OVERLAY = """
 };
 """
 
+# CY8CKIT-062S2-AI BSP design.modus wiring. P2.0–P2.5 use SDHC0 on
+# HSIOM active function 14, as on Zephyr's same-SoC CY8CPROTO-062-4343W.
+_WIFI_OVERLAY = """
+#include <zephyr/dt-bindings/pinctrl/ifx_cat1-pinctrl.h>
+
+&pinctrl {
+  wifi_sdio_d0: wifi-sdio-d0 {
+    pinmux = <DT_CAT1_PINMUX(2, 0, HSIOM_SEL_ACT_14)>;
+    drive-push-pull;
+    input-enable;
+  };
+  wifi_sdio_d1: wifi-sdio-d1 {
+    pinmux = <DT_CAT1_PINMUX(2, 1, HSIOM_SEL_ACT_14)>;
+    drive-push-pull;
+    input-enable;
+  };
+  wifi_sdio_d2: wifi-sdio-d2 {
+    pinmux = <DT_CAT1_PINMUX(2, 2, HSIOM_SEL_ACT_14)>;
+    drive-push-pull;
+    input-enable;
+  };
+  wifi_sdio_d3: wifi-sdio-d3 {
+    pinmux = <DT_CAT1_PINMUX(2, 3, HSIOM_SEL_ACT_14)>;
+    drive-push-pull;
+    input-enable;
+  };
+  wifi_sdio_cmd: wifi-sdio-cmd {
+    pinmux = <DT_CAT1_PINMUX(2, 4, HSIOM_SEL_ACT_14)>;
+    drive-push-pull;
+    input-enable;
+  };
+  wifi_sdio_clk: wifi-sdio-clk {
+    pinmux = <DT_CAT1_PINMUX(2, 5, HSIOM_SEL_ACT_14)>;
+    drive-push-pull;
+    input-enable;
+  };
+};
+
+&gpio_prt2 { status = "okay"; };
+&gpio_prt4 { status = "okay"; };
+
+&clk_hf4 {
+  status = "okay";
+  clock-div = <1>;
+  clocks = <&fll0>;
+};
+
+&sdhc0 {
+  status = "okay";
+  pinctrl-0 = <&wifi_sdio_cmd &wifi_sdio_clk &wifi_sdio_d0
+               &wifi_sdio_d1 &wifi_sdio_d2 &wifi_sdio_d3>;
+  pinctrl-names = "default";
+  bus-width = <4>;
+  max-bus-freq = <50000000>;
+  min-bus-freq = <400000>;
+  power-delay-ms = <1000>;
+  no-1-8-v;
+  clocks = <&clk_hf4>;
+
+  airoc_wifi: airoc-wifi {
+    compatible = "infineon,airoc-wifi";
+    wifi-reg-on-gpios = <&gpio_prt2 6 GPIO_ACTIVE_HIGH>;
+    wifi-host-wake-gpios = <&gpio_prt4 1 GPIO_ACTIVE_HIGH>;
+  };
+};
+"""
+
 
 def config_schema(config: ConfigType) -> ConfigType:
     config = dict(config)
@@ -144,3 +226,9 @@ def to_code(config: ConfigType) -> None:
     zephyr_add_prj_conf("SETTINGS_ZMS_SECTOR_SIZE_MULT", 16)
     if config[CONF_BOARD] == _BOARD:
         zephyr_add_overlay(_CORE_FLASH_OVERLAY)
+        if CONF_WIFI in CORE.config:
+            zephyr_add_overlay(_WIFI_OVERLAY)
+            zephyr_add_prj_conf("CYW43439", True)
+            zephyr_add_prj_conf("CYW43439_MURATA_1YN", True)
+            # CYW43439 startup allocations exceed the 15 KB used by the 4343W board.
+            zephyr_add_prj_conf_min("HEAP_MEM_POOL_SIZE", 32 * 1024)
