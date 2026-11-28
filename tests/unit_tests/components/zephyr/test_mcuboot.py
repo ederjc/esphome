@@ -148,6 +148,7 @@ def test_check_mcuboot_swap_limit_uses_the_configured_sector_count(
 @dataclass
 class _Reg:
     size: int
+    addr: int = 0
 
 
 @dataclass
@@ -161,6 +162,7 @@ class _Node:
     regs: list[_Reg] = field(default_factory=list)
     props: dict[str, _Prop] = field(default_factory=dict)
     parent: "_Node | None" = None
+    compats: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -191,7 +193,7 @@ _LOAD_EDTLIB = "esphome.components.zephyr.dts_lookup._load_edtlib"
 
 def _mcuboot_dir(tmp_path: Path, edt: object | bytes | None) -> Path:
     mcuboot_dir = tmp_path / "mcuboot"
-    (mcuboot_dir / "zephyr").mkdir(parents=True)
+    (mcuboot_dir / "zephyr").mkdir(parents=True, exist_ok=True)
     (mcuboot_dir / "CMakeCache.txt").write_text(
         "CMAKE_BUILD_TYPE:STRING=MinSizeRel\nZEPHYR_BASE:PATH=/sdk/zephyr\n"
     )
@@ -243,3 +245,139 @@ def test_read_slot_layout_without_zephyr_base(
         assert _read_slot_layout(mcuboot_dir) is None
     load_edtlib.assert_not_called()
     assert "no ZEPHYR_BASE in" in caplog.text
+
+
+_LOGICAL_BOOT = (
+    "CONFIG_BOOT_SWAP_USING_OFFSET=y\n"
+    "CONFIG_MCUBOOT_LOGICAL_SECTOR_SIZE=0x4000\n"
+    "CONFIG_BOOT_MAX_IMG_SECTORS=58\n"
+    "CONFIG_MCUBOOT_BOOT_MAX_ALIGN=512\n"
+)
+_LOGICAL_APP = (
+    "CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_USING_OFFSET=y\n"
+    "CONFIG_MCUBOOT_IMG_MANAGER=y\n"
+    "CONFIG_IMG_CUSTOM_SECTOR_SIZE=16384\n"
+    "CONFIG_MCUBOOT_BOOT_MAX_ALIGN=512\n"
+)
+
+
+def _psoc6_logical_edt() -> _Edt:
+    edt = _edt({"erase-block-size": 512, "write-block-size": 512})
+    slot0 = edt.label2node["slot0_partition"]
+    slot1 = edt.label2node["slot1_partition"]
+    assert slot0.parent is not None and slot0.parent.parent is not None
+    slot0.parent.parent.regs = [_Reg(0x200000, 0x10000000)]
+    slot0.regs = [_Reg(0xE4000, 0x10020000)]
+    slot1.regs = [_Reg(0xE8000, 0x10104000)]
+    slot0.compats = slot1.compats = ["zephyr,mapped-partition"]
+    return edt
+
+
+def _uploader_config(tmp_path: Path, text: str, edt: _Edt | None = None) -> None:
+    app_dir = tmp_path / "zephyr"
+    config = app_dir / "zephyr" / ".config"
+    config.parent.mkdir(parents=True)
+    config.write_text(text)
+    (app_dir / "CMakeCache.txt").write_text("ZEPHYR_BASE:PATH=/sdk/zephyr\n")
+    (config.parent / "edt.pickle").write_bytes(
+        pickle.dumps(edt or _psoc6_logical_edt())
+    )
+
+
+@pytest.mark.parametrize("size", [0xD4000, 0xD4001])
+def test_logical_offset_signed_capacity(tmp_path: Path, size: int) -> None:
+    image = _mcuboot_build(tmp_path, _LOGICAL_BOOT, size)
+    _mcuboot_dir(tmp_path, _psoc6_logical_edt())
+    _uploader_config(tmp_path, _LOGICAL_APP)
+    with patch(_LOAD_EDTLIB):
+        if size == 0xD4000:
+            check_mcuboot_swap_limit(tmp_path, image)
+        else:
+            with pytest.raises(EsphomeError, match="can only swap in 868352 bytes"):
+                check_mcuboot_swap_limit(tmp_path, image)
+    assert image.is_file() is (size == 0xD4000)
+
+
+@pytest.mark.parametrize(
+    ("boot", "app", "message"),
+    [
+        (
+            _LOGICAL_BOOT,
+            _LOGICAL_APP.replace("CONFIG_IMG_CUSTOM_SECTOR_SIZE=16384\n", ""),
+            "does not match.*CONFIG_IMG_CUSTOM_SECTOR_SIZE",
+        ),
+        (
+            _LOGICAL_BOOT,
+            _LOGICAL_APP.replace("16384", "512"),
+            "does not match.*CONFIG_IMG_CUSTOM_SECTOR_SIZE",
+        ),
+        (
+            _LOGICAL_BOOT.replace("0x4000", "0x0"),
+            _LOGICAL_APP,
+            "logical sector size \\(0\\) does not match",
+        ),
+        (
+            _LOGICAL_BOOT.replace("=58", "=57"),
+            _LOGICAL_APP,
+            "needs at least 58 sectors",
+        ),
+        (
+            _LOGICAL_BOOT,
+            _LOGICAL_APP.replace("ALIGN=512", "ALIGN=256"),
+            "requires matching.*CONFIG_MCUBOOT_BOOT_MAX_ALIGN",
+        ),
+        (
+            _LOGICAL_BOOT.replace("=y", "=n", 1),
+            _LOGICAL_APP,
+            "requires offset swap",
+        ),
+        (
+            _LOGICAL_BOOT.replace("CONFIG_BOOT_MAX_IMG_SECTORS=58\n", ""),
+            _LOGICAL_APP,
+            "requires an explicit",
+        ),
+        (
+            _LOGICAL_BOOT.replace("0x4000", "0x3800"),
+            _LOGICAL_APP.replace("16384", "14336"),
+            "logical sectors, physical flash rows",
+        ),
+    ],
+)
+def test_invalid_logical_geometry_blocks_signed_artifact(
+    tmp_path: Path, boot: str, app: str, message: str
+) -> None:
+    image = _mcuboot_build(tmp_path, boot, 4096)
+    _mcuboot_dir(tmp_path, _psoc6_logical_edt())
+    _uploader_config(tmp_path, app)
+    with patch(_LOAD_EDTLIB), pytest.raises(EsphomeError, match=message):
+        check_mcuboot_swap_limit(tmp_path, image)
+    assert not image.exists()
+
+
+def test_logical_geometry_without_an_uploader_is_not_checked(tmp_path: Path) -> None:
+    image = _mcuboot_build(tmp_path, _LOGICAL_BOOT, 0xD4001)
+    _uploader_config(tmp_path, "")
+    check_mcuboot_swap_limit(tmp_path, image)
+    assert image.is_file()
+
+
+def test_logical_offset_requires_devicetree(tmp_path: Path) -> None:
+    image = _mcuboot_build(tmp_path, _LOGICAL_BOOT, 4096)
+    _uploader_config(tmp_path, _LOGICAL_APP)
+    with pytest.raises(EsphomeError, match="Cannot verify MCUboot logical geometry"):
+        check_mcuboot_swap_limit(tmp_path, image)
+    assert not image.exists()
+
+
+def test_logical_offset_requires_matching_uploader_partitions(tmp_path: Path) -> None:
+    image = _mcuboot_build(tmp_path, _LOGICAL_BOOT, 4096)
+    _mcuboot_dir(tmp_path, _psoc6_logical_edt())
+    uploader_edt = _psoc6_logical_edt()
+    uploader_edt.label2node["slot1_partition"].regs[0].addr += 0x4000
+    _uploader_config(tmp_path, _LOGICAL_APP, uploader_edt)
+    with (
+        patch(_LOAD_EDTLIB),
+        pytest.raises(EsphomeError, match="does not match.*uploader's flash layout"),
+    ):
+        check_mcuboot_swap_limit(tmp_path, image)
+    assert not image.exists()
