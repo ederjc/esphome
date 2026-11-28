@@ -3,8 +3,7 @@ name: Infineon fork CI
 
 on:
   pull_request:
-    branches: [ifx/dev, feat/psoc6-radar-spi]
-    branches: [ifx/dev, feat/psoc6-pdm]
+    branches: [ifx/dev, "feat/**"]
   push:
     branches: [ifx/dev]
 
