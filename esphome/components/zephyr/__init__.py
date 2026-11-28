@@ -395,7 +395,8 @@ PreferenceStorage = Literal["NVS", "ZMS"]
 def zephyr_setup_preferences(storage: PreferenceStorage = "NVS") -> None:
     """Store preferences through the settings subsystem.
 
-    `storage` picks the Zephyr storage backend: NVS for flash, ZMS for RRAM and MRAM.
+    `storage` picks the Zephyr storage backend: NVS for typical flash, ZMS for
+    RRAM, MRAM, or flash devices whose minimum write size exceeds NVS limits.
     """
     cg.add(zephyr_ns.setup_preferences())
     zephyr_add_prj_conf("SETTINGS", True)

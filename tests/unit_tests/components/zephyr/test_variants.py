@@ -4,11 +4,13 @@ from collections.abc import Callable
 from dataclasses import replace
 from importlib import import_module
 import logging
+from pathlib import Path
 import pkgutil
 from types import ModuleType
 
 import pytest
 
+from esphome.components import infineon
 from esphome.components.zephyr import (
     zephyr_framework_type,
     zephyr_manifest,
@@ -49,7 +51,11 @@ from esphome.const import (
     Toolchain,
 )
 from esphome.core import CORE, EsphomeError
-from tests.unit_tests.components.zephyr.zephyr_state import VARIANTS, empty_zephyr_data
+from tests.unit_tests.components.zephyr.zephyr_state import (
+    VARIANTS,
+    empty_zephyr_data,
+    minimal_variant_config,
+)
 
 _MANIFEST: ZephyrManifest = ZephyrManifest(
     framework_type="zephyr",
@@ -86,6 +92,7 @@ _ALT_VARIANT: ZephyrVariant = ZephyrVariant(
 
 _ZEPHYR_PLATFORMS: tuple[str, ...] = (
     "esp32",
+    "infineon",
     "nrf",
     "nxp",
     "renesas",
@@ -93,6 +100,11 @@ _ZEPHYR_PLATFORMS: tuple[str, ...] = (
     "silabs",
     "stm32",
 )
+
+
+def test_infineon_requires_a_zephyr_source_with_psoc6_backports() -> None:
+    with pytest.raises(cv.Invalid, match="requires a Zephyr source with PSoC 6"):
+        infineon.CONFIG_SCHEMA({"variant": "CY8C624A"})
 
 
 def _config(
@@ -378,7 +390,9 @@ def test_module_template_resolve_ignores_min_version_for_non_semver_ref() -> Non
 
 
 @pytest.mark.parametrize("variant", sorted(VARIANTS))
-def test_validated_config_round_trips_through_config_schema(variant: str) -> None:
+def test_validated_config_round_trips_through_config_schema(
+    variant: str, tmp_path: Path
+) -> None:
     """upload/logs feed the cached validated config back through CONFIG_SCHEMA."""
     from esphome.const import CONF_TYPE, CONF_VARIANT, KEY_CORE  # noqa: PLC0415
     from esphome.core import CORE  # noqa: PLC0415
@@ -389,9 +403,9 @@ def test_validated_config_round_trips_through_config_schema(variant: str) -> Non
     platform = zephyr_platform_framework(variant).value[0].value
     CONFIG_SCHEMA = import_module(f"esphome.components.{platform}").CONFIG_SCHEMA
     CORE.data[KEY_CORE] = {}
-    validated = CONFIG_SCHEMA(
-        {CONF_VARIANT: variant, CONF_FRAMEWORK: {CONF_TYPE: "zephyr"}}
-    )
+    config = minimal_variant_config(variant, tmp_path)
+    config.setdefault(CONF_FRAMEWORK, {})[CONF_TYPE] = "zephyr"
+    validated = CONFIG_SCHEMA(config)
     re_validated = CONFIG_SCHEMA(validated)
     assert re_validated[CONF_VARIANT] == variant
     assert set(re_validated) == set(validated)

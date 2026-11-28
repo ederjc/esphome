@@ -1,0 +1,51 @@
+infineon:
+  variant: CY8C624A
+  board: cy8ckit_062s2_ai
+  framework:
+    source:
+      type: git
+      url: https://github.com/ederjc/zephyr.git
+      ref: ifx-psoc6-v4.5.0-core.1
+
+logger:
+
+globals:
+  - id: boots
+    type: uint32_t
+    restore_value: true
+    initial_value: '0'
+
+preferences:
+  flash_write_interval: 1s
+
+esphome:
+  name: psoc6-core-smoke
+  on_boot:
+    then:
+      - switch.turn_on: user_led
+      - lambda: |-
+          ESP_LOGI("psoc6", "PSoC 6 smoke boot %u", static_cast<unsigned>(++id(boots)));
+
+switch:
+  - platform: gpio
+    id: user_led
+    pin: P5.3
+    internal: true
+
+binary_sensor:
+  - platform: gpio
+    id: user_button
+    internal: true
+    pin:
+      number: P5.2
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    on_press:
+      - switch.toggle: user_led
+
+interval:
+  - interval: 2s
+    then:
+      - logger.log: "PSoC 6 smoke heartbeat"

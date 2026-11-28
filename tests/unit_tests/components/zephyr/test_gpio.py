@@ -6,9 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from esphome.components.zephyr import dts_lookup
-from esphome.components.zephyr.const import KEY_ZEPHYR
-from esphome.components.zephyr.gpio import _validate_gpio_pin, pin_summary
+from esphome.components.infineon.gpio import infineon_pin_to_code
+from esphome.components.zephyr import dts_lookup, zephyr_data
+from esphome.components.zephyr.const import KEY_OVERLAY, KEY_ZEPHYR
+from esphome.components.zephyr.gpio import (
+    ZEPHYR_PIN_SCHEMA,
+    _validate_gpio_pin,
+    pin_summary,
+)
 import esphome.config_validation as cv
 from esphome.core import CORE
 from tests.unit_tests.components.zephyr.zephyr_state import VARIANTS, empty_zephyr_data
@@ -179,3 +184,19 @@ def test_get_gpio_port_size(monkeypatch: pytest.MonkeyPatch) -> None:
     assert dts_lookup.get_gpio_port_size("b", "gpio0") == 32  # binding default
     assert dts_lookup.get_gpio_port_size("b", "gpio1") == 8
     assert dts_lookup.get_gpio_port_size("b", "gpio2") == 0
+
+
+@pytest.mark.asyncio
+async def test_infineon_pin_enables_disabled_gpio_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_zephyr_variant("CY8C624A")
+    port0 = _gpio_node("gpio_prt0", 8)
+    port0.status = "disabled"
+    monkeypatch.setattr(dts_lookup, "_get_edt", lambda board: _fake_edt(port0))
+
+    await infineon_pin_to_code(
+        ZEPHYR_PIN_SCHEMA({"id": "test_pin", "number": "P0.1", "mode": {"input": True}})
+    )
+
+    assert '&gpio_prt0 { status = "okay"; };' in zephyr_data()[KEY_OVERLAY][""]

@@ -1153,6 +1153,7 @@ _filter_platform_sources = filter_source_files_from_platform(
         },
         "wake/wake_zephyr.cpp": {
             PlatformFramework.ESP32_ZEPHYR,
+            PlatformFramework.INFINEON_ZEPHYR,
             PlatformFramework.NRF52_ZEPHYR,
             PlatformFramework.NRF_ZEPHYR,
             PlatformFramework.NXP_ZEPHYR,

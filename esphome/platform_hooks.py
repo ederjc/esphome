@@ -26,6 +26,7 @@ from esphome.const import (
     PLATFORM_BK72XX,
     PLATFORM_ESP32,
     PLATFORM_ESP8266,
+    PLATFORM_INFINEON,
     PLATFORM_LN882X,
     PLATFORM_NRF,
     PLATFORM_NRF52,
@@ -51,6 +52,7 @@ COSMETIC_HOOKS: Final = frozenset(
 
 # Platforms built by the zephyr component on the Zephyr toolchain
 _ZEPHYR_TOOLCHAIN_PLATFORMS: Final = (
+    PLATFORM_INFINEON,
     PLATFORM_NRF,
     PLATFORM_NXP,
     PLATFORM_RENESAS,
