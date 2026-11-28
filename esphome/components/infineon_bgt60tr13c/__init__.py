@@ -144,10 +144,26 @@ def _validate_acquisition(config: ConfigType) -> ConfigType:
         raise cv.Invalid(
             f"A frame of {frame_samples} samples does not fill whole 24-bit FIFO words"
         )
-    if frame_samples > FIFO_SAMPLES:
+    # FSTAT FIFO FULL is a reported error, so a frame must leave at least one word free.
+    if frame_samples >= FIFO_SAMPLES:
         raise cv.Invalid(
-            f"A frame of {frame_samples} samples exceeds the {FIFO_SAMPLES}-sample FIFO"
+            f"A frame of {frame_samples} samples must be smaller than the "
+            f"{FIFO_SAMPLES}-sample FIFO"
         )
+    mode = config.setdefault(CONF_ACQUISITION_MODE, "triggered")
+    if mode == "continuous":
+        # The next frame fills the FIFO while the current one is read.
+        if frame_samples > FIFO_SAMPLES // 2:
+            raise cv.Invalid(
+                f"A continuous frame of {frame_samples} samples exceeds half the "
+                f"{FIFO_SAMPLES}-sample FIFO; use 'triggered' mode"
+            )
+        if CONF_TIMEOUT not in config:
+            raise cv.Invalid(
+                f"'{CONF_TIMEOUT}' is required in continuous mode; set it above the "
+                "profile's frame period",
+                path=[CONF_TIMEOUT],
+            )
     threshold = config.setdefault(CONF_FIFO_THRESHOLD, frame_samples)
     if threshold % 2 or not 2 <= threshold <= frame_samples:
         raise cv.Invalid(
@@ -157,7 +173,6 @@ def _validate_acquisition(config: ConfigType) -> ConfigType:
         )
     if CONF_REGISTERS_FILE in config:
         config[CONF_REGISTERS] = validate_register_list(config[CONF_REGISTERS_FILE])
-    config.setdefault(CONF_ACQUISITION_MODE, "triggered")
     config.setdefault(CONF_USE_INTERRUPT, True)
     config.setdefault(CONF_TIMEOUT, cv.positive_time_period_milliseconds("500ms"))
     config.setdefault(CONF_FRAME_LOG_INTERVAL, 1)

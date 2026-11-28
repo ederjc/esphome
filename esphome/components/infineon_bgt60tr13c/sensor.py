@@ -2,9 +2,15 @@ import esphome.codegen as cg
 from esphome.components import sensor
 import esphome.config_validation as cv
 from esphome.const import STATE_CLASS_MEASUREMENT, UNIT_HERTZ
+import esphome.final_validate as fv
 from esphome.types import ConfigType
 
-from . import BGT60TR13C, CONF_INFINEON_BGT60TR13C_ID
+from . import (
+    BGT60TR13C,
+    CONF_INFINEON_BGT60TR13C_ID,
+    CONF_REGISTERS,
+    CONF_REGISTERS_FILE,
+)
 
 DEPENDENCIES = ["infineon_bgt60tr13c"]
 
@@ -33,6 +39,24 @@ CONFIG_SCHEMA = cv.Schema(
         ),
     }
 )
+
+
+def _final_validate(config: ConfigType) -> ConfigType:
+    full_config = fv.full_config.get()
+    parent_id = config[CONF_INFINEON_BGT60TR13C_ID]
+    parent = full_config.get_config_for_path(
+        full_config.get_path_for_id(parent_id)[:-1]
+    )
+    if CONF_REGISTERS not in parent:
+        raise cv.Invalid(
+            f"Radar sensors need acquisition: configure '{CONF_REGISTERS}' or "
+            f"'{CONF_REGISTERS_FILE}' on '{parent_id}'; the diagnostic mode "
+            "publishes nothing"
+        )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config: ConfigType) -> None:
