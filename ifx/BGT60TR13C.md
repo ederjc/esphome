@@ -3,8 +3,9 @@
 **The positive A1 register diagnostic passed; the physical register-transfer
 fault test is pending.** Without a register list the component remains the
 diagnostic fixture below. With a user-supplied list it configures the chip,
-starts frames and reads the FIFO; **frame acquisition is compiled but not yet
-bench-verified**. It does not publish presence or distance.
+starts frames and reads the FIFO. Acquisition is bench-verified on the
+CY8CKIT-062S2-AI: 10 IRQ-signalled frames at 1 Hz in `triggered` mode with
+0 discards. It does not publish presence or distance.
 
 ## Acquisition from a user-supplied register list
 
@@ -25,7 +26,7 @@ infineon_bgt60tr13c:
   fifo_threshold: 2048               # samples; default = one frame
   acquisition_mode: triggered        # or continuous
   use_interrupt: true                # false: IRQ pin level + FSTAT polling
-  timeout: 500ms
+  timeout: 500ms                     # required in continuous mode
   frame_log_interval: 1              # 0 disables per-frame lines
 sensor:
   - platform: infineon_bgt60tr13c
@@ -38,7 +39,10 @@ sensor:
 first `{...}` is used; comments and `#define` lines are ignored) or a plain hex
 list. Each word must be a write command (`addr << 25 | 1 << 24 | data`) to an
 address below the FIFO (`0x60`). The geometry must match the list; frames must
-be an even sample count of at most 16384.
+be an even sample count smaller than the 16384-sample FIFO, because FSTAT
+reports a full FIFO as an error. Continuous frames must fit in half the FIFO
+(at most 8192 samples), so the next frame can fill it while one is read. Sensors
+require a register list; the diagnostic mode publishes nothing.
 
 Sequence, mirroring the Apache driver's `xensiv_bgt60trxx_config()`/
 `start_frame()`: hardware reset, CHIP_ID check, MAIN software reset, writes in
@@ -46,15 +50,24 @@ list order (SFCTL FIFO limit `CREF = fifo_threshold/2 - 1` and MISO high-speed
 off are owned by the component), full readback (mismatches are warnings),
 FSM+FIFO reset, then `MAIN.FRAME_START`. Data-ready is the rising IRQ edge on
 the configured pin, with a 50 ms FSTAT watchdog. A frame is read only once FSTAT
-holds a whole frame, in ≤256-sample bursts with a 20 ms per-loop budget. Any
-error or timeout discards the whole frame and resets FSM+FIFO.
+holds a whole frame, in ≤256-sample bursts with a 20 ms per-loop budget.
+
+A FIFO status error, timeout, failed FIFO read or wrong sample count discards
+the partial frame. `triggered` mode then resets FSM+FIFO and waits for the next
+`update_interval`; `continuous` mode resets and restarts the frame at once.
+Latched GSR errors do not block a restart. A restart that fails after setup
+reports an error, leaves acquisition idle and retries on the next update; the
+component fails only after 5 consecutive restart failures. Configuration
+failures during setup fail the component at once.
 
 - `triggered` (default) forces CCR2 `MAX_FRAME_CNT` (bits 11:0, datasheet
   decode) to 1 and starts one frame per `update_interval`. This suits 1 MHz SPI:
   a 2048-sample frame is 3072 payload bytes, about 25 ms on the wire.
 - `continuous` keeps the list's CCR2 and re-polls after each frame. It only
   works when SPI throughput exceeds the profile's data rate; otherwise FIFO
-  overflow causes discards.
+  overflow causes discards. `timeout` is required here. It bounds the first
+  frame from `FRAME_START`, then each later frame from the previous frame's
+  detection, so it must exceed the profile's frame period.
 
 Statistics (portable `frame_stats.h`) assume FIFO order chirp → sample → RX
 interleaved per sample: per-RX mean/min/max/peak (`max(max-mean, mean-min)`),
@@ -63,7 +76,8 @@ interleaved per sample: per-RX mean/min/max/peak (`max(max-mean, mean-min)`),
 `nan` on the first frame). These are raw-ADC LSB values, not calibrated
 presence or range.
 
-UART lines (tag `infineon_bgt60tr13c`) for bench parsing:
+UART lines (tag `infineon_bgt60tr13c`) for bench parsing. `Frame #` and
+`Acquisition summary` lines are logged at DEBUG, ESPHome's default level:
 
 ```text
 BGT60TR13C acquisition boot v1
@@ -71,6 +85,7 @@ Configured: registers=%u readback_mismatches=%u mode=%s samples_per_chirp=%u chi
 Register 0x%02X readback 0x%06X expected 0x%06X            (warning)
 Frame #%u src=%s samples=%u fill=%u read_ms=%u rx1_mean=%.1f rx1_min=%u rx1_max=%u rx1_peak=%.1f[ rx2_... rx3_...] signal_rms=%.2f motion_rms=%.2f
 Frame discarded: reason=%s result=%u fill=%u discarded=%u   (warning)
+Frame restart failed: result=%u attempt=%u/%u; retrying on next update   (error)
 Acquisition summary: frames=%u rate_hz=%.2f discarded=%u irq_events=%u
 Radar protocol failed: %u (...)                             (error)
 ```
@@ -84,10 +99,9 @@ For bench builds, keep the licensed configurator output in a gitignored path
 (for example `tests/components/infineon_bgt60tr13c/.esphome/bench/`) and never
 commit or publish it.
 
-Open bench gates: CCR2 field decode and FSM behaviour after `MAX_FRAME_CNT=1`,
-IRQ edge/threshold on P11.0, measured burst throughput at 1 MHz, register
-readback of status-like fields, multi-RX ordering, and 80 MHz reference
-provenance.
+Open bench gates: continuous mode, `use_interrupt: false`, measured burst
+throughput at 1 MHz, register readback of status-like fields, multi-RX
+ordering, and 80 MHz reference provenance.
 
 ## Confirmed protocol and licensing
 
@@ -142,9 +156,9 @@ use that EULA. **None of those register tables has been copied.**
 The Apache driver does not supply a generated register table and directs users
 to the separate Radar Development Kit configurator.
 
-An appropriately licensed generated profile, with explicit external **80 MHz**
-reference-clock provenance, is required before configuring RF or starting
-frames. The current board-local overlay is copied unchanged from the verified
+Acquisition therefore runs only from a profile the user supplies and keeps out
+of the repository. Its external **80 MHz** reference-clock provenance stays
+the user's responsibility. The current board-local overlay is copied unchanged from the verified
 SPI fixture; no oscillator/clock binding has been guessed or added.
 
 The additional public
@@ -202,15 +216,18 @@ a physically uncalibrated distance placeholder.
 ## Validation and parent bench gates
 
 The standalone native tests are under `ifx/tests/bgt60tr13c`, outside the
-standard GoogleTest component discovery tree. Fork Linux CI builds/runs both.
-`protocol_test.cpp`
-It uses a mock transport, base-board identity bytes and the separately extracted
+standard GoogleTest component discovery tree. Fork Linux CI builds and runs
+all three. `protocol_test.cpp` uses a mock transport, base-board identity bytes and the separately extracted
 vendor LFSR/packet oracle, never room data or simulated hardware evidence.
 `spi_delegate_test.cpp` compiles the **actual** `spi_zephyr.cpp` and `spi.h`,
 with test-only core/Zephyr interface stubs and scripted controller return codes.
 It checks setup/header/data failures, error followed by success under the same
-CS, next-transaction clearing, and unsupported/invalid writes. These are host
-regressions, not real-controller or FIFO hardware evidence.
+CS, next-transaction clearing, and unsupported/invalid writes.
+`acquisition_test.cpp` drives the portable `acquisition.h` state machine against
+a register-model fake chip: triggered and back-to-back continuous frames, split
+read budgets, early IRQs, timeouts, mid-frame FIFO read errors, and runtime
+restart failures escalating after 5 attempts. These are host regressions, not
+real-controller or FIFO hardware evidence.
 Build with a C++20 compiler using CMake/CTest:
 
 ```powershell
@@ -264,7 +281,7 @@ The parent/bench owner must reserve the kit according to
    bench-approved method. Require visible failure and component failed state.
    Do not infer FIFO payload fault handling from this diagnostic: it never reads
    FIFO. Header/data sticky handling is presently a host regression only.
-4. **Blocked pending licensed 80 MHz/RX1 profile:** configure with readbacks,
+4. With a user-supplied 80 MHz/RX1 profile: configure with readbacks,
    establish IRQ polarity and FIFO threshold in words, start bounded frames,
    compare every RX1 sample with seed-1 vendor LFSR across consecutive bursts/
    frame boundaries. Log only count, mismatch index, frame, duration and status.
@@ -287,5 +304,9 @@ three fresh heartbeats.
 
 The physical register-transfer fault test remains pending: no safe electrical
 injection method is available on the attached PCB. Scripted host regressions
-do not satisfy that integration gate. The evidence supports a diagnostic
-draft only, not FIFO, IRQ edge, presence, or distance claims.
+do not satisfy that integration gate.
+
+Acquisition from a user-supplied profile then passed on the same kit:
+10 frames signalled by the IRQ edge at 1 Hz in `triggered` mode, with 0
+discards. LFSR comparison, fault injection, presence and distance are not
+verified.
