@@ -37,9 +37,13 @@ STOP/RESET release queued and partial buffers, never a slab borrowed by the
 caller. RESET requires configuration again. FIFO/slab/queue errors stop capture
 and are reported by `dmic_read`; STOP followed by START recovers. PAUSE/RELEASE
 are explicitly unsupported.
-Read supports **timeout 0 only**; positive and forever timeouts return
-`-ENOTSUP`. State validation, nonblocking dequeue and returned block-size
-snapshot share one IRQ-locked transaction on this single-core Zephyr target.
+Read honours its timeout. The state is snapshotted under the IRQ lock and a
+non-ACTIVE stream returns `-EIO`; the queue wait then runs without the lock so
+the ISR can complete blocks. An empty queue returns `-ENOMSG` for timeout 0 and
+`-EAGAIN` when a positive timeout expires; `SYS_FOREVER_MS` waits indefinitely.
+A dequeued block reports the configured block size, which cannot change under
+it because configure/STOP purge the queue. A failed PDL initialisation during
+configure drops the previous slab/block size and leaves the driver INITIALIZED.
 STOP/RESET/IRQ errors cannot free the caller-borrowed block.
 
 The ESPHome backend owns eight 640-byte slab blocks, drains at most eight blocks
@@ -69,9 +73,13 @@ unstaged, unverified work item; it is not enabled by this fixture.
 ## Deliverables and evidence
 
 - `psoc6-pdm-v1.patch`: apply to an **isolated** Zephyr checkout at
-  `d42a8e9e40735695cc3319c9c6b35cbe18f00108`. Contains driver, binding, Kconfig,
-  PDL source wiring and board clock/pinctrl/node changes. It changes no HAL
-  module source. The source copies beside this document support simulation.
+  `92adf83a1` (same tree as `d42a8e9e40735695cc3319c9c6b35cbe18f00108`). It is
+  `git diff 92adf83a1 ba784836e` of tag `ifx-psoc6-v4.5.0-pdm.2` and contains
+  driver, binding, Kconfig, PDL source wiring (gated on
+  `CONFIG_USE_INFINEON_PDM_PCM`), the disabled PSOC 6 02 SoC PDM node and board
+  clock/pinctrl/`&pdm0` changes. It changes no HAL module source. The driver,
+  Kconfig and binding copies beside this document are byte-identical to the tag
+  and support simulation.
 - `esphome/components/zephyr_dmic/`: standard Zephyr microphone backend.
 - `ifx/pdm-stereo-bench.yaml` and `pdm_stereo_metrics.h`: credential-free fixture,
   no Wi-Fi/API/OTA, no audio transport, file, waveform, energy or recording.
@@ -82,18 +90,21 @@ unstaged, unverified work item; it is not enabled by this fixture.
   Concurrent START, incomplete/invalid runs and callback delivery while stopped
   latch failure; `COMPLETE` requires a full validated >=5 s window in each run.
 - `ifx/pdm-stereo-ci.yaml`: compiles the same fixture in fork CI, replacing
-  only the local Zephyr checkout with the PDMv1 source from
-  [ederjc/zephyr#2](https://github.com/ederjc/zephyr/pull/2). CI checks that the
-  non-release tag selects the exact reviewed Zephyr commit.
+  only the local Zephyr checkout with the PDMv1 source from tag
+  `ifx-psoc6-v4.5.0-pdm.2` ([ederjc/zephyr#2](https://github.com/ederjc/zephyr/pull/2)).
+  CI checks that the non-release tag selects the exact reviewed Zephyr commit
+  `ba784836e4ced24d727540e1975c411b1fdefd6e`.
 - Fifteen focused pytest cases passed, including deterministic fixture sequencing,
   duplicate ownership, alias
   refusal, polling-budget boundaries, unsupported formats, plain
   PCM refusing codecs/ESP-IDF resources, and preserved ESP32 codec setup.
-- Eleven QEMU ztests passed using the actual driver and ESPHome backend/AudioCapture
+- Twelve QEMU ztests passed using the actual driver and ESPHome backend/AudioCapture
   publication path with fake registers and real
   Zephyr queues/slabs: bad clock/shape, allocation exhaustion, borrowed-slab
-  ownership, fresh stereo read after exhaustion/restart, nonblocking read/reset
-  metadata, callback STOP of a caller-borrowed block, duplicate runtime ownership,
+  ownership, fresh stereo read after exhaustion/restart, read timeouts
+  (`-ENOMSG`, `-EAGAIN`, `SYS_FOREVER_MS`) and reset metadata, failed PDL
+  initialisation dropping the previous configuration,
+  callback STOP of a caller-borrowed block, duplicate runtime ownership,
   polling interval changes, completion gating/concurrent START rejection,
   full metrics windows/quiet gaps, channel selection
   and signed gain.
@@ -103,10 +114,13 @@ unstaged, unverified work item; it is not enabled by this fixture.
 - Arm SDK 1.0.1 / GCC 14.3 / C++20 compiled and linked the real board fixture.
   `.config` enables `CONFIG_AUDIO_DMIC_INFINEON_PDM_V1`, not the v2 driver.
   Outputs are in `.pdm-workspace/board-build/zephyr/zephyr.{elf,hex,bin}`.
-  Deterministic-sequencer build footprint: 89,080 bytes flash, 31,756 bytes RAM.
-  Both generated pinmux values and their actual controller phandles passed
-  compile-time assertions. Replacement HEX SHA-256:
-  `C866E758B0EB00CA99151B2CF5119E8F5B659BB2AE5648D77645242002398EC8`.
+  With tag `ifx-psoc6-v4.5.0-pdm.2` the deterministic-sequencer build footprint
+  is 89,096 bytes flash, 31,756 bytes RAM. Both generated pinmux values and
+  their actual controller phandles passed compile-time assertions. pdm.2 bench
+  HEX SHA-256:
+  `32311A337FD31E195A89264A889D3854BDD0A942F1895481BE6ECDED2076B758`
+  (not yet run on hardware). The hardware evidence below is for the pdm.1
+  image `C866E758B0EB00CA99151B2CF5119E8F5B659BB2AE5648D77645242002398EC8`.
   The earlier `3D877457...` HEX is held: its independently scheduled interval
   could race boot/startup. Do not flash it.
   The earlier `0A990278...` HEX used wrong ACT_5 pinmux: do not flash saved copies.
@@ -154,6 +168,9 @@ approximately 34 seconds after boot; wait for explicit completion. Require:
 
 Reproduce with the preinstalled ESPHome Python and read-only cache:
 `ifx\zephyr-pdm-v1\tests\offline_build.py --cache <ifx-z> --tests` or `--bench`.
+It expects `.pdm-workspace\zephyr` to be an isolated checkout of
+`ifx-psoc6-v4.5.0-pdm.2` (for example a `git clone --shared --no-checkout` of a
+local Zephyr repository followed by `checkout ba784836e`).
 The helper disables installers, confines scratch/user caches to this worktree,
 uses explicit read-only HAL modules, and checks both generated pinmux values.
 
